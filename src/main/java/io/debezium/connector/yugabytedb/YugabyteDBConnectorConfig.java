@@ -777,7 +777,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withValidation(YugabyteDBConnectorConfig::validateReplicationSlotName)
             .withDescription("The name of the YSQL logical decoding slot created for streaming changes from a plugin." +
                     "Defaults to 'debezium");
-    
+
     public static final Field DROP_SLOT_ON_STOP = Field.create("slot.drop.on.stop")
             .withDisplayName("Drop slot on stop")
             .withType(Type.BOOLEAN)
@@ -1231,6 +1231,44 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     "the original value is a toasted value not provided by the database. " +
                     "If starts with 'hex:' prefix it is expected that the rest of the string repesents hexadecimally encoded octets.");
 
+    public static final Field MASTER_PROXY_ENABLED = Field.create("database.master.proxy.enabled")
+            .withDisplayName("Enable Master Proxy")
+            .withType(Type.BOOLEAN)
+            .withImportance(Importance.LOW)
+            .withDefault(false)
+            .withDescription("Whether the connector should use the external REST proxy service instead of talking to YugabyteDB master nodes directly");
+
+    public static final Field MASTER_PROXY_URL = Field.create("database.master.proxy.url")
+            .withDisplayName("Master Proxy Base URL")
+            .withType(Type.STRING)
+            .withImportance(Importance.LOW)
+            .withDescription("Base URL of the proxy service that fronts YugabyteDB masters (e.g. https://yb-master-proxy.company.local/api)");
+
+    public static final Field MASTER_PROXY_TLS_ENABLED = Field.create("database.master.proxy.tls.enabled")
+            .withDisplayName("Enable TLS for Master Proxy")
+            .withType(Type.BOOLEAN)
+            .withDefault(true)
+            .withImportance(Importance.LOW)
+            .withDescription("Whether to use TLS encryption when talking to the master proxy gRPC service");
+
+    public static final Field MASTER_PROXY_TLS_ROOT_CERT = Field.create("database.master.proxy.tls.rootcert")
+            .withDisplayName("Master Proxy Root Certificate")
+            .withType(Type.STRING)
+            .withImportance(Importance.LOW)
+            .withDescription("PEM file containing the root certificates used to trust the master proxy's server certificate");
+
+    public static final Field MASTER_PROXY_TLS_CLIENT_CERT = Field.create("database.master.proxy.tls.cert")
+            .withDisplayName("Master Proxy Client Certificate")
+            .withType(Type.STRING)
+            .withImportance(Importance.LOW)
+            .withDescription("PEM file containing the client certificate for mutual-TLS with the master proxy");
+
+    public static final Field MASTER_PROXY_TLS_CLIENT_KEY = Field.create("database.master.proxy.tls.key")
+            .withDisplayName("Master Proxy Client Key")
+            .withType(Type.STRING)
+            .withImportance(Importance.LOW)
+            .withDescription("PEM file containing the private key for the client certificate");
+
     private final TruncateHandlingMode truncateHandlingMode;
     private final ConsistencyMode consistencyMode;
     private final HStoreHandlingMode hStoreHandlingMode;
@@ -1502,6 +1540,12 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     PUBLICATION_AUTOCREATE_MODE,
                     DROP_SLOT_ON_STOP,
                     MASTER_ADDRESSES,
+                    MASTER_PROXY_ENABLED,
+                    MASTER_PROXY_URL,
+                    MASTER_PROXY_TLS_ENABLED,
+                    MASTER_PROXY_TLS_ROOT_CERT,
+                    MASTER_PROXY_TLS_CLIENT_CERT,
+                    MASTER_PROXY_TLS_CLIENT_KEY,
                     STREAM_ID,
                     STREAM_PARAMS,
                     ON_CONNECT_STATEMENTS,
@@ -1848,7 +1892,6 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.warn(
                         String.format("Error while trying to %s filtered publication. Will retry, attempt %d out of %d",
                                 isUpdate ? "update" : "create", retryCount, maxAttempts));
-                    
                 pauseBetweenRetries(config.getLong(RETRY_DELAY_MS));
             }
         }
@@ -1866,7 +1909,6 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.trace("Ignoring table {} as it's not included in the filter configuration", tableId);
                 continue;
             }
-            
             LOGGER.trace("Adding table {} to the list of captured tables", tableId);
             capturedTables.add(tableId);
         }
@@ -1997,4 +2039,29 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             return false;
         }
     }
+
+    public boolean masterProxyEnabled() {
+        return getConfig().getBoolean(MASTER_PROXY_ENABLED);
+    }
+
+    public String masterProxyUrl() {
+        return getConfig().getString(MASTER_PROXY_URL);
+    }
+
+    public boolean masterProxyTlsEnabled() {
+        return getConfig().getBoolean(MASTER_PROXY_TLS_ENABLED);
+    }
+
+    public String masterProxyTlsRootCert() {
+        return getConfig().getString(MASTER_PROXY_TLS_ROOT_CERT);
+    }
+
+    public String masterProxyTlsClientCert() {
+        return getConfig().getString(MASTER_PROXY_TLS_CLIENT_CERT);
+    }
+
+    public String masterProxyTlsClientKey() {
+        return getConfig().getString(MASTER_PROXY_TLS_CLIENT_KEY);
+    }
+
 }

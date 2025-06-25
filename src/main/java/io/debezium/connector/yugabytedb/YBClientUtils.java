@@ -35,7 +35,7 @@ import org.yb.master.MasterTypes.NamespaceIdentifierPB;
 
 /**
  * Utility class to provide function to help functioning of the connector processes.
- * 
+ *
  * @author Vaibhav Kushwaha (vkushwaha@yugabyte.com)
  */
 public class YBClientUtils {
@@ -61,12 +61,12 @@ public class YBClientUtils {
   public static Set<String> fetchTableList(YBClient ybClient,
                                            YugabyteDBConnectorConfig connectorConfig) {
     LOGGER.info("Fetching all the tables from the source");
-    
+
     Set<String> tableIds = new HashSet<>();
       try {
           ListTablesResponse tablesResp = ybClient.getTablesList();
 
-          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo : 
+          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo :
               tablesResp.getTableInfoList()) {
               if (tableInfo.getRelationType() == MasterTypes.RelationType.INDEX_TABLE_RELATION ||
                     tableInfo.getRelationType() == MasterTypes.RelationType.SYSTEM_TABLE_RELATION) {
@@ -96,7 +96,7 @@ public class YBClientUtils {
 
               }
               else {
-                  // Since there is no concept of schema in CQL we will be using namespaceName.tableName 
+                  // Since there is no concept of schema in CQL we will be using namespaceName.tableName
                   fqlTableName = tableInfo.getNamespace().getName() + "."
                                   + tableInfo.getName();
                   tableId = YugabyteDBSchema.parseWithKeyspace(fqlTableName, tableInfo.getNamespace().getName());
@@ -108,7 +108,7 @@ public class YBClientUtils {
               if (connectorConfig.getTableFilters().dataCollectionFilter().isIncluded(tableId)
                       && connectorConfig.databaseFilter().isIncluded(tableId)) {
                   // Throw an exception if the table in the include list is not a part of stream ID
-                  if (!isTableIncludedInStreamId(dbStreamInfoResponse, 
+                  if (!isTableIncludedInStreamId(dbStreamInfoResponse,
                                                  tableInfo.getId().toStringUtf8())) {
                       String warningMessageFormat = "The table %s is not a part of the "
                                                             + "stream ID %s. Ignoring the table.";
@@ -116,29 +116,29 @@ public class YBClientUtils {
                           LOGGER.warn(warningMessageFormat, tableId, connectorConfig.streamId());
                           continue;
                       }
-                      throw new DebeziumException(String.format(warningMessageFormat, tableId, 
+                      throw new DebeziumException(String.format(warningMessageFormat, tableId,
                                                                 connectorConfig.streamId()));
                   }
 
-                  LOGGER.info(String.format("Adding table %s for streaming (%s)", 
+                  LOGGER.info(String.format("Adding table %s for streaming (%s)",
                                             tableInfo.getId().toStringUtf8(), fqlTableName));
                   tableIds.add(tableInfo.getId().toStringUtf8());
               }
               else {
-                  LOGGER.warn("Filtering out the table {} since it was not in the include list", 
+                  LOGGER.warn("Filtering out the table {} since it was not in the include list",
                               tableId);
               }
           }
       }
       catch (Exception e) {
-          // We are ultimately throwing this exception since this will be thrown while initializing 
-          // the connector and at this point if this exception is thrown, we should not proceed 
+          // We are ultimately throwing this exception since this will be thrown while initializing
+          // the connector and at this point if this exception is thrown, we should not proceed
           // forward with the connector.
           throw new DebeziumException(e);
       }
       return tableIds;
   }
-  
+
   /**
    * Helper function to get the mapped values for the table to tablet IDs. The function returns a
    * list in which each element is a pair like Pair<tableID, tabletId>
@@ -147,7 +147,7 @@ public class YBClientUtils {
    * @param dbStreamId the stream ID for which we need to read the tablets
    * @return a list containing the pairs where tableID is mapped to tabletIDs
    */
-  public static List<Pair<String, String>> getTabletListMappedToTableIds(YBClient ybClient, 
+  public static List<Pair<String, String>> getTabletListMappedToTableIds(YBClient ybClient,
                                                                          Set<String> tableIds,
                                                                          String dbStreamId) {
     List<Pair<String, String>> tableToTabletIds = new ArrayList<>();
@@ -185,11 +185,11 @@ public class YBClientUtils {
    * @param cdcsdkSafeTime the safe time to set
    * @throws Exception if things go wrong
    */
-  public static void setCheckpoint(YBClient ybClient, String streamId, String tableId, 
-                                   String tabletId, long term, long index, 
+  public static void setCheckpoint(YBClient ybClient, String streamId, String tableId,
+                                   String tabletId, long term, long index,
                                    boolean initialCheckpoint, boolean bootstrap,
                                    long cdcsdkSafeTime) throws Exception {
-    String logFormatString = "Connector setting checkpoint for tablet {} with streamId {} - " 
+    String logFormatString = "Connector setting checkpoint for tablet {} with streamId {} - "
                              + "term: {} index: {} initialCheckpoint: {} bootstrap: {} "
                              + "cdcsdkSafeTime: {}";
     LOGGER.debug(logFormatString, tabletId, streamId, term, index, initialCheckpoint, bootstrap,
@@ -232,16 +232,31 @@ public class YBClientUtils {
    * @return a YBClient instance
    */
   public static YBClient getYbClient(YugabyteDBConnectorConfig connectorConfig) {
-    AsyncYBClient asyncClient = new AsyncYBClient.AsyncYBClientBuilder(connectorConfig.masterAddresses())
-                                  .defaultAdminOperationTimeoutMs(connectorConfig.adminOperationTimeoutMs())
-                                  .defaultOperationTimeoutMs(connectorConfig.operationTimeoutMs())
-                                  .defaultSocketReadTimeoutMs(connectorConfig.socketReadTimeoutMs())
-                                  .numTablets(connectorConfig.maxNumTablets())
-                                  .sslCertFile(connectorConfig.sslRootCert())
-                                  .sslClientCertFiles(connectorConfig.sslClientCert(), connectorConfig.sslClientKey())
-                                  .maxRpcAttempts(connectorConfig.maxRPCRetryAttempts())
-                                  .sleepTime(connectorConfig.rpcRetrySleepTime())
-                                  .build();
+    String masterAddresses = connectorConfig.masterProxyEnabled()
+            ? connectorConfig.masterProxyUrl()
+            : connectorConfig.masterAddresses();
+
+    AsyncYBClient.AsyncYBClientBuilder builder = new AsyncYBClient.AsyncYBClientBuilder(masterAddresses)
+            .defaultAdminOperationTimeoutMs(connectorConfig.adminOperationTimeoutMs())
+            .defaultOperationTimeoutMs(connectorConfig.operationTimeoutMs())
+            .defaultSocketReadTimeoutMs(connectorConfig.socketReadTimeoutMs())
+            .numTablets(connectorConfig.maxNumTablets())
+            .maxRpcAttempts(connectorConfig.maxRPCRetryAttempts())
+            .sleepTime(connectorConfig.rpcRetrySleepTime());
+
+    if (connectorConfig.masterProxyEnabled() && connectorConfig.masterProxyTlsEnabled()) {
+        if (connectorConfig.masterProxyTlsRootCert() == null || connectorConfig.masterProxyTlsClientCert() == null ||
+                connectorConfig.masterProxyTlsClientKey() == null) {
+            throw new DebeziumException("Master proxy TLS root certificate and key are required if proxy TLS enabled");
+        }
+        builder.sslCertFile(connectorConfig.masterProxyTlsRootCert());
+        builder.sslClientCertFiles(connectorConfig.masterProxyTlsClientCert(), connectorConfig.masterProxyTlsClientKey());
+    } else {
+        builder.sslCertFile(connectorConfig.sslRootCert())
+               .sslClientCertFiles(connectorConfig.sslClientCert(), connectorConfig.sslClientKey());
+    }
+
+    AsyncYBClient asyncClient = builder.build();
     return new YBClient(asyncClient);
   }
 
@@ -251,14 +266,33 @@ public class YBClientUtils {
    * @return a YBClient instance
    */
   public static YBClient getYbClient(Configuration config) {
-    AsyncYBClient asyncClient = new AsyncYBClient.AsyncYBClientBuilder(config.getString(YugabyteDBConnectorConfig.MASTER_ADDRESSES))
-                                  .defaultAdminOperationTimeoutMs(config.getLong(YugabyteDBConnectorConfig.ADMIN_OPERATION_TIMEOUT_MS))
-                                  .defaultOperationTimeoutMs(config.getLong(YugabyteDBConnectorConfig.OPERATION_TIMEOUT_MS))
-                                  .defaultSocketReadTimeoutMs(config.getLong(YugabyteDBConnectorConfig.SOCKET_READ_TIMEOUT_MS))
-                                  .numTablets(config.getInteger(YugabyteDBConnectorConfig.MAX_NUM_TABLETS))
-                                  .sslCertFile(config.getString(YugabyteDBConnectorConfig.SSL_ROOT_CERT))
-                                  .sslClientCertFiles(config.getString(YugabyteDBConnectorConfig.SSL_CLIENT_CERT), config.getString(YugabyteDBConnectorConfig.SSL_CLIENT_KEY))
-                                  .build();
+    boolean proxyEnabled = config.getBoolean(YugabyteDBConnectorConfig.MASTER_PROXY_ENABLED, false);
+
+    String masterAddresses = proxyEnabled ? config.getString(YugabyteDBConnectorConfig.MASTER_PROXY_URL)
+                                          : config.getString(YugabyteDBConnectorConfig.MASTER_ADDRESSES);
+
+    AsyncYBClient.AsyncYBClientBuilder builder = new AsyncYBClient.AsyncYBClientBuilder(masterAddresses)
+            .defaultAdminOperationTimeoutMs(config.getLong(YugabyteDBConnectorConfig.ADMIN_OPERATION_TIMEOUT_MS))
+            .defaultOperationTimeoutMs(config.getLong(YugabyteDBConnectorConfig.OPERATION_TIMEOUT_MS))
+            .defaultSocketReadTimeoutMs(config.getLong(YugabyteDBConnectorConfig.SOCKET_READ_TIMEOUT_MS))
+            .numTablets(config.getInteger(YugabyteDBConnectorConfig.MAX_NUM_TABLETS));
+
+    if (proxyEnabled && config.getBoolean(YugabyteDBConnectorConfig.MASTER_PROXY_TLS_ENABLED, true)) {
+        String root = config.getString(YugabyteDBConnectorConfig.MASTER_PROXY_TLS_ROOT_CERT);
+        String cert = config.getString(YugabyteDBConnectorConfig.MASTER_PROXY_TLS_CLIENT_CERT);
+        String key  = config.getString(YugabyteDBConnectorConfig.MASTER_PROXY_TLS_CLIENT_KEY);
+        if (root == null || cert == null || key == null) {
+            throw new DebeziumException("Master proxy TLS root certificate and key are required if proxy TLS enabled");
+        }
+        builder.sslCertFile(root);
+        builder.sslClientCertFiles(cert, key);
+    } else {
+        builder.sslCertFile(config.getString(YugabyteDBConnectorConfig.SSL_ROOT_CERT))
+               .sslClientCertFiles(config.getString(YugabyteDBConnectorConfig.SSL_CLIENT_CERT),
+                                   config.getString(YugabyteDBConnectorConfig.SSL_CLIENT_KEY));
+    }
+
+    AsyncYBClient asyncClient = builder.build();
     return new YBClient(asyncClient);
   }
 
@@ -402,7 +436,6 @@ public class YBClientUtils {
     int retryCount = 0;
     Exception exception = null;
     GetTabletListToPollForCDCResponse resp = null;
-    
     while (retryCount <= connectorConfig.maxConnectorRetries()) {
       try (YBClient syncClient = getYbClient(connectorConfig)) {
         resp = syncClient.getTabletListToPollForCdc(table, connectorConfig.streamId(), tableId);
@@ -436,7 +469,6 @@ public class YBClientUtils {
      if (exception != null) {
       throw exception;
      }
-     
      return resp;
   }
 
