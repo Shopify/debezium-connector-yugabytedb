@@ -1,18 +1,7 @@
 # This Dockerfile is used by cdc-core to build the Debezium Image for the Shopify CDC in that buildkite pipeline
-
-# From the Buildkite Agent
-ARG SHOPIFY_DEBEZIUM_URL
-
-FROM ${SHOPIFY_DEBEZIUM_URL} as debezium_builder
+FROM us-docker.pkg.dev/shopify-docker-images/containers/cloud/maven-gradle-sbt-jdk
 
 USER root
-
-WORKDIR /app/src
-# Debezium Core + API (match Final, Snapshot, Beta…)
-COPY --chown=kafka:kafka --chmod=755 --from=debezium_builder \
-      /app/src/debezium-core/target/debezium-core-*.jar .
-COPY --chown=kafka:kafka --chmod=755 --from=debezium_builder \
-      /app/src/debezium-api/target/debezium-api-*.jar  .
 
 WORKDIR /app/src/yugabyte
 COPY . /app/src/yugabyte
