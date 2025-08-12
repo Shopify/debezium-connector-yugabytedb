@@ -17,6 +17,12 @@ import org.yb.util.Pair;
 
 public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<R> {
     private static final Logger LOGGER = LoggerFactory.getLogger(PGCompatible.class);
+    // Configuration key to enable including only columns that were changed in the original
+    // database event. When set to true, the transform will omit unchanged columns from the
+    // flattened record, similar to the behaviour of YBExtractNewRecordState.
+    public static final String INCLUDE_CHANGED_COLUMNS = "include.changed.columns";
+
+    private boolean includeChangedColumns = false;
 
     @Override
     public R apply(final R record) {
@@ -41,7 +47,12 @@ public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<
 
     @Override
     public ConfigDef config() {
-        return new ConfigDef();
+        return new ConfigDef().define(
+                INCLUDE_CHANGED_COLUMNS,
+                ConfigDef.Type.BOOLEAN,
+                false,
+                ConfigDef.Importance.MEDIUM,
+                "When true, the SMT will omit columns that were not changed in the original database event.");
     }
 
     @Override
@@ -83,14 +94,54 @@ public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<
         return builder.build();
     }
 
+    /**
+     * Creates an updated schema that optionally omits columns that were not present (i.e. not changed)
+     * in the supplied value struct. A column is considered "changed" when the corresponding
+     * value-set struct is non-null in the change event emitted by the connector.
+     *
+     * @param schema The original Connect schema
+     * @param value  The Connect value corresponding to the schema
+     * @return A potentially reduced schema that contains only changed columns when
+     *         {@link #includeChangedColumns} is true
+     */
+    private Schema makeUpdatedSchema(Schema schema, Struct value) {
+        if (!includeChangedColumns) {
+            // Fallback to default behaviour when the feature is disabled
+            return makeUpdatedSchema(schema);
+        }
+
+        final SchemaBuilder builder = SchemaUtil.copySchemaBasics(schema, SchemaBuilder.struct());
+
+        if (schema.isOptional()) {
+            builder.optional();
+        } else {
+            builder.required();
+        }
+
+        for (Field field : schema.fields()) {
+            if (field.schema().type() == Type.STRUCT && isValueSetStruct(field)) {
+                // Only include this column if it exists in the incoming value struct (i.e. was changed)
+                if (value.get(field.name()) != null) {
+                    builder.field(field.name(), field.schema().field("value").schema());
+                }
+            }
+            else {
+                // Preserve non-value-set fields as-is (e.g. envelope metadata like "op", "source", etc.)
+                builder.field(field.name(), field.schema());
+            }
+        }
+
+        return builder.build();
+    }
+
     private Struct makeUpdatedValue(Schema updatedSchema, Struct value) {
         final Struct updatedValue = new Struct(updatedSchema);
 
-        for (Field field : value.schema().fields()) {
+        for (Field field : updatedSchema.fields()) {
             LOGGER.debug("Considering value {}", field.name());
             if (field.schema().type() == Type.STRUCT) {
                 LOGGER.debug("Value is a struct");
-                Struct fieldValue = (Struct) value.get(field);
+                Struct fieldValue = (Struct) value.get(field.name());
                 if (isValueSetStruct(field) && fieldValue != null) {
                     LOGGER.debug("value is valueset");
                     updatedValue.put(field.name(), fieldValue.get("value"));
@@ -100,7 +151,7 @@ public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<
                 }
             } else {
                 LOGGER.debug("value is not a struct");
-                updatedValue.put(field.name(), value.get(field));
+                updatedValue.put(field.name(), value.get(field.name()));
             }
         }
 
@@ -109,7 +160,7 @@ public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<
 
     public Pair<Schema, Struct> getUpdatedValueAndSchema(Schema schema, Struct value) {
         LOGGER.debug("Original Schema as json: " + io.debezium.data.SchemaUtil.asString(schema));
-        Schema updatedSchema = makeUpdatedSchema(schema);
+        Schema updatedSchema = includeChangedColumns ? makeUpdatedSchema(schema, value) : makeUpdatedSchema(schema);
         LOGGER.debug("Updated schema as json: " + io.debezium.data.SchemaUtil.asString(updatedSchema));
 
         LOGGER.debug("Original value as json: {}", io.debezium.data.SchemaUtil.asDetailedString(value));
@@ -120,7 +171,10 @@ public class PGCompatible<R extends ConnectRecord<R>> implements Transformation<
     }
 
     @Override
-    public void configure(Map<String, ?> map) {
-
+    public void configure(Map<String, ?> configs) {
+        Object cfg = configs.get(INCLUDE_CHANGED_COLUMNS);
+        if (cfg != null) {
+            includeChangedColumns = Boolean.parseBoolean(cfg.toString());
+        }
     }
 }
