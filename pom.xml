@@ -590,7 +590,7 @@
                     <skipDeploy>true</skipDeploy>
                 </configuration>
             </plugin>
-            <plugin>
+            <!-- <plugin>
                 <groupId>io.fabric8</groupId>
                 <artifactId>docker-maven-plugin</artifactId>
                 <version>${version.docker.maven.plugin}</version>
@@ -624,7 +624,7 @@
                         </goals>
                     </execution>
                 </executions>
-            </plugin>
+            </plugin> -->
         </plugins>
         <resources>
             <!-- Apply the properties set in the POM to the resource files -->

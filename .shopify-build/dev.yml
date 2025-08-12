@@ -1,0 +1,16 @@
+---
+name: debezium
+
+up:
+  - packages:
+      - openjdk@21
+      - maven
+  - jdk:
+      version: "21"
+      distribution: openjdk
+  - maven:
+      - jars
+
+commands:
+  build: mvn clean compile -Passembly -DskipITs -DskipTests
+  test: mvn clean test
