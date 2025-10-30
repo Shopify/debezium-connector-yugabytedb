@@ -641,6 +641,13 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withValidation(Field::isBoolean)
             .withInvisibleRecommender();
 
+    public static final Field ENABLE_OFFSET_REBIND = Field.create("yugabytedb.enable.offset.rebind")
+            .withDisplayName("Enable resume from saved offsets (rebind checkpoints)")
+            .withType(Type.BOOLEAN)
+            .withImportance(Importance.LOW)
+            .withDefault(false)
+            .withDescription("When true, on startup the connector sets per-tablet CDC checkpoints from saved offsets to resume after stream ID loss");
+
     public static final Field HASH_RANGES_LIST = Field.create(TASK_CONFIG_PREFIX + ".hash.ranges.list")
             .withDisplayName("YugabyteDB tablet list with hash ranges")
             .withType(ConfigDef.Type.STRING)
@@ -777,7 +784,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withValidation(YugabyteDBConnectorConfig::validateReplicationSlotName)
             .withDescription("The name of the YSQL logical decoding slot created for streaming changes from a plugin." +
                     "Defaults to 'debezium");
-    
+
     public static final Field DROP_SLOT_ON_STOP = Field.create("slot.drop.on.stop")
             .withDisplayName("Drop slot on stop")
             .withType(Type.BOOLEAN)
@@ -1521,7 +1528,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     LOG_GET_CHANGES,
                     LOG_GET_CHANGES_INTERVAL_MS,
               MBEAN_REGISTRATION_RETRIES,
-                    MBEAN_REGISTRATION_RETRY_DELAY_MS)
+                    MBEAN_REGISTRATION_RETRY_DELAY_MS,
+                    ENABLE_OFFSET_REBIND)
             .events(
                     INCLUDE_UNKNOWN_DATATYPES)
             .connector(
@@ -1848,7 +1856,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.warn(
                         String.format("Error while trying to %s filtered publication. Will retry, attempt %d out of %d",
                                 isUpdate ? "update" : "create", retryCount, maxAttempts));
-                    
+
                 pauseBetweenRetries(config.getLong(RETRY_DELAY_MS));
             }
         }
@@ -1866,7 +1874,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.trace("Ignoring table {} as it's not included in the filter configuration", tableId);
                 continue;
             }
-            
+
             LOGGER.trace("Adding table {} to the list of captured tables", tableId);
             capturedTables.add(tableId);
         }

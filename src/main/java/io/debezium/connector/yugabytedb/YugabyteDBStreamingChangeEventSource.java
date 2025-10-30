@@ -397,7 +397,17 @@ public class YugabyteDBStreamingChangeEventSource implements
                 // For streaming, we do not want any colocated information and want to process the tables
                 // based on just their tablet IDs - pass false as the 'colocated' flag to enforce the same.
                 YBPartition p = new YBPartition(entry.getKey(), entry.getValue(), false /* colocated */);
-                offsetContext.initSourceInfo(p, this.connectorConfig, opId);
+
+                OpId initOpId = opId;
+                // Prefer previously persisted offsets (from Kafka) when rebind is enabled.
+                if (this.connectorConfig.getConfig().getBoolean(YugabyteDBConnectorConfig.ENABLE_OFFSET_REBIND)) {
+                    SourceInfo saved = offsetContext.getTabletSourceInfo().get(p.getId());
+                    if (saved != null && saved.lsn() != null) {
+                        initOpId = saved.lsn();
+                        LOGGER.info("Using saved offset for {} -> {}", p.getId(), initOpId.toSerString());
+                    }
+                }
+                offsetContext.initSourceInfo(p, this.connectorConfig, initOpId);
 
                 if (taskContext.shouldEnableExplicitCheckpointing()) {
                     // We can initialise the explicit checkpoint for this tablet to the value returned by
@@ -406,6 +416,31 @@ public class YugabyteDBStreamingChangeEventSource implements
                 }
 
                 schemaNeeded.put(p.getId(), Boolean.TRUE);
+            }
+
+            // Optionally rebind server-side checkpoints from saved offsets, to resume after stream loss.
+            if (this.connectorConfig.getConfig().getBoolean(YugabyteDBConnectorConfig.ENABLE_OFFSET_REBIND)) {
+                for (Pair<String, String> entry : tabletPairList) {
+                    final String tableId = entry.getKey();
+                    final String tabletId = entry.getValue();
+                    YBPartition p = new YBPartition(tableId, tabletId, false /* colocated */);
+                    OpId cp = offsetContext.lsn(p);
+                    try {
+                        YBClientUtils.setCheckpoint(
+                            syncClient,
+                            streamId,
+                            tableId,
+                            tabletId,
+                            cp.getTerm(),
+                            cp.getIndex(),
+                            true /* initialCheckpoint */,
+                            false /* bootstrap */,
+                            cp.getTime());
+                        tabletSafeTime.put(p.getId(), cp.getTime());
+                    } catch (Exception e) {
+                        LOGGER.warn("Failed to set checkpoint for table {} tablet {} to {}.{}; proceeding", tableId, tabletId, cp.getTerm(), cp.getIndex(), e);
+                    }
+                }
             }
 
             // This will contain the tablet ID mapped to the number of records it has seen
