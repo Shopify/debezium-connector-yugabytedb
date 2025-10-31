@@ -876,6 +876,13 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     "Whether or not to delete the logical replication stream when the connector finishes orderly" +
                             "By default the replication is kept so that on restart progress can resume from the last recorded location");
 
+    public static final Field ENABLE_OFFSET_REBIND = Field.create("yugabytedb.enable.offset.rebind")
+            .withDisplayName("Enable resume from saved offsets (rebind checkpoints)")
+            .withType(Type.BOOLEAN)
+            .withImportance(Importance.LOW)
+            .withDefault(false)
+            .withDescription("When true, on startup the connector sets per-tablet CDC checkpoints from saved offsets to resume after stream ID loss");
+
     public enum AutoCreateMode implements EnumeratedValue {
         /**
          * No Publication will be created, it's expected the user
@@ -1589,7 +1596,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     LOG_GET_CHANGES,
                     LOG_GET_CHANGES_INTERVAL_MS,
               MBEAN_REGISTRATION_RETRIES,
-                    MBEAN_REGISTRATION_RETRY_DELAY_MS)
+                    MBEAN_REGISTRATION_RETRY_DELAY_MS,
+                    ENABLE_OFFSET_REBIND)
             .events(
                     INCLUDE_UNKNOWN_DATATYPES)
             .connector(
