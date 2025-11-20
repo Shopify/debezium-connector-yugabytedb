@@ -16,6 +16,8 @@ import io.debezium.pipeline.ErrorHandler;
 import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import io.debezium.schema.SchemaChangeEvent;
 import io.debezium.util.Clock;
 import io.debezium.util.DelayStrategy;
 import io.debezium.util.ElapsedTimeStrategy;
@@ -715,6 +717,20 @@ public class YugabyteDBStreamingChangeEventSource implements
                                                 schema.refreshSchemaWithTabletId(tableId, message.getSchema(), pgSchemaNameInRecord, tabletId);
                                             } else {
                                                 schema.refreshSchemaWithTabletId(tableId, message.getSchema(), tableId.catalog(), tabletId);
+                                            }
+                                            
+                                            Table updatedTable = schema.tableForTablet(tableId, tabletId);
+                                            if (updatedTable != null) {
+                                                String ddl = "-- DDL change for table " + tableId;
+                                                SchemaChangeEvent schemaChangeEvent = SchemaChangeEvent.ofAlter(
+                                                        part,
+                                                        offsetContext,
+                                                        tableId.catalog(),
+                                                        tableId.schema(),
+                                                        ddl,
+                                                        updatedTable
+                                                );
+                                                schema.recordSchemaHistory(schemaChangeEvent);
                                             }
                                         }
                                     }

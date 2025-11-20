@@ -26,9 +26,15 @@ import org.yb.QLType;
 
 import io.debezium.annotation.NotThreadSafe;
 import io.debezium.connector.yugabytedb.connection.YugabyteDBConnection;
+import io.debezium.document.Document;
+import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.relational.*;
 import io.debezium.relational.Tables.TableFilter;
+import io.debezium.relational.history.DatabaseHistory;
+import io.debezium.relational.history.HistoryRecord;
+import io.debezium.relational.history.TableChanges;
 import io.debezium.schema.DataCollectionSchema;
+import io.debezium.schema.SchemaChangeEvent;
 import io.debezium.schema.TopicSelector;
 import io.debezium.util.Collect;
 import io.debezium.util.SchemaNameAdjuster;
@@ -63,6 +69,7 @@ public class YugabyteDBSchema extends RelationalDatabaseSchema {
     private YugabyteDBCQLValueConverter cqlValueConverter;
     private TopicSelector<TableId> topicSelector;
     private TableFilter tableFilter;
+    private DatabaseHistory databaseHistory;
 
     /**
      * Create a schema component given the supplied {@link YugabyteDBConnectorConfig Postgres connector configuration}.
@@ -84,6 +91,8 @@ public class YugabyteDBSchema extends RelationalDatabaseSchema {
         this.cqlValueConverter = null;
         this.topicSelector = topicSelector;
         this.tableFilter = new Filters(config).tableFilter();
+        
+        this.databaseHistory = config.getDatabaseHistory();
     }
 
     protected YugabyteDBSchema(YugabyteDBConnectorConfig config,TopicSelector<TableId> topicSelector, YugabyteDBCQLValueConverter cqlValueConverter) {
@@ -99,6 +108,8 @@ public class YugabyteDBSchema extends RelationalDatabaseSchema {
         this.cqlValueConverter = cqlValueConverter;
         this.topicSelector = topicSelector;
         this.tableFilter = config.cqlTableFilter();
+        
+        this.databaseHistory = config.getDatabaseHistory();
     }
 
     private static TableSchemaBuilder getTableSchemaBuilder(YugabyteDBConnectorConfig config,
@@ -666,6 +677,45 @@ public class YugabyteDBSchema extends RelationalDatabaseSchema {
     public String getLookupKey(TableId tableId, String tabletId) {
         return config.databaseName() + "." + tableId.schema() + "." + tableId.table()
                 + "." + tabletId;
+    }
+
+    /**
+     * Record a schema change event to the database history topic.
+     *
+     * @param schemaChangeEvent the schema change event to record
+     */
+    public void recordSchemaHistory(SchemaChangeEvent schemaChangeEvent) {
+        if (databaseHistory == null) {
+            LOGGER.debug("Database history not configured, skipping schema history recording");
+            return;
+        }
+
+        boolean shouldRecord = schemaChangeEvent.getTables().stream()
+                .anyMatch(table -> !isFilteredOut(table.id()));
+
+        if (!shouldRecord) {
+            LOGGER.debug("Skipping schema history record for filtered tables: {}", 
+                    schemaChangeEvent.getTables());
+            return;
+        }
+
+        try {
+            databaseHistory.record(
+                    schemaChangeEvent.getPartition(),
+                    schemaChangeEvent.getOffset(),
+                    schemaChangeEvent.getDatabase(),
+                    schemaChangeEvent.getSchema(),
+                    schemaChangeEvent.getDdl(),
+                    schemaChangeEvent.getTableChanges()
+            );
+
+            LOGGER.info("Recorded schema change to history: database={}, schema={}, ddl={}",
+                    schemaChangeEvent.getDatabase(),
+                    schemaChangeEvent.getSchema(),
+                    schemaChangeEvent.getDdl());
+        } catch (Exception e) {
+            LOGGER.warn("Failed to record schema history", e);
+        }
     }
 
 }

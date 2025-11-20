@@ -59,6 +59,8 @@ import io.debezium.relational.RelationalDatabaseConnectorConfig;
 import io.debezium.relational.RelationalTableFilters;
 import io.debezium.relational.TableId;
 import io.debezium.relational.Tables.TableFilter;
+import io.debezium.relational.history.DatabaseHistory;
+import io.debezium.relational.history.KafkaDatabaseHistory;
 import io.debezium.util.Clock;
 import io.debezium.util.Metronome;
 import io.debezium.util.Strings;
@@ -1204,6 +1206,16 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     "have TOASTed data that are rarely part of these updates. However, it is possible for the in-memory schema to " +
                     "become outdated if TOASTable columns are dropped from the table.");
 
+    public static final Field DATABASE_HISTORY = Field.create("database.history")
+            .withDisplayName("Database history class")
+            .withType(Type.CLASS)
+            .withWidth(Width.LONG)
+            .withDefault(KafkaDatabaseHistory.class.getName())
+            .withImportance(Importance.LOW)
+            .withDescription("The name of the DatabaseHistory class that should be used to store and recover database schema changes. " +
+                    "The configuration properties for the history are prefixed with the 'database.history.' string " +
+                    "For compatability with  Debezium 1.9.5 we are not using `schema.history.internal.kafka.topic`");
+
     /*
      * public static final Field XMIN_FETCH_INTERVAL = Field.create("xmin.fetch.interval.ms")
      * .withDisplayName("Xmin fetch interval (ms)")
@@ -1970,6 +1982,35 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                         org.postgresql.Driver.class.getName(),
                         YugabyteDBConnection.class.getClassLoader(),
                         JdbcConfiguration.PORT.withDefault(YugabyteDBConnectorConfig.PORT.defaultValueAsString()));
+    }
+
+    /**
+     * Get the database history instance for recording schema changes.
+     * 
+     * @return DatabaseHistory instance, or null if not configured
+     */
+    public DatabaseHistory getDatabaseHistory() {
+        Configuration config = getConfig();
+        
+        // Check if database history is configured
+        if (!config.hasKey(DATABASE_HISTORY.name())) {
+            LOGGER.debug("Database history not configured");
+            return null;
+        }
+        
+        try {
+            DatabaseHistory history = config.getInstance(DATABASE_HISTORY, DatabaseHistory.class);
+            if (history != null) {
+                // Configure with null comparator and listener for write-only mode
+                history.configure(config, null, null, true);
+                history.start();
+                LOGGER.info("Database history initialized: {}", history.getClass().getName());
+            }
+            return history;
+        } catch (Exception e) {
+            LOGGER.warn("Failed to initialize database history", e);
+            return null;
+        }
     }
 
     private static class SystemTablesPredicate implements TableFilter {

@@ -37,6 +37,8 @@ import io.debezium.pipeline.spi.SnapshotResult;
 import io.debezium.relational.RelationalSnapshotChangeEventSource;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
+import io.debezium.schema.SchemaChangeEvent;
 import io.debezium.util.Clock;
 import io.debezium.util.Metronome;
 import io.debezium.util.Strings;
@@ -590,6 +592,20 @@ public class YugabyteDBSnapshotChangeEventSource extends AbstractSnapshotChangeE
                           schema.refreshSchemaWithTabletId(tId, message.getSchema(), pgSchemaName, tabletId);
                         } else {
                           schema.refreshSchemaWithTabletId(tId, message.getSchema(), tId.catalog(), tabletId);
+                        }
+                        
+                        Table updatedTable = schema.tableForTablet(tId, tabletId);
+                        if (updatedTable != null) {
+                          String ddl = "-- DDL change for table " + tId;
+                          SchemaChangeEvent schemaChangeEvent = SchemaChangeEvent.ofAlter(
+                                  part,
+                                  previousOffset,
+                                  tId.catalog(),
+                                  tId.schema(),
+                                  ddl,
+                                  updatedTable
+                          );
+                          schema.recordSchemaHistory(schemaChangeEvent);
                         }
                       }
                     } else {
