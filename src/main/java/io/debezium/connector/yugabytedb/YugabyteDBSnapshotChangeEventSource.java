@@ -596,7 +596,14 @@ public class YugabyteDBSnapshotChangeEventSource extends AbstractSnapshotChangeE
                         
                         Table updatedTable = schema.tableForTablet(tId, tabletId);
                         if (updatedTable != null) {
-                          String ddl = "-- DDL change for table " + tId;
+                          // Note: YugabyteDB CDC doesn't provide actual DDL text (unlike MySQL binlog).
+                          String ddl = String.format(
+                              "-- Schema change detected for %s.%s (columns: %d, primary keys: %s)",
+                              tId.schema(),
+                              tId.table(),
+                              updatedTable.columns().size(),
+                              String.join(", ", updatedTable.primaryKeyColumnNames())
+                          );
                           SchemaChangeEvent schemaChangeEvent = SchemaChangeEvent.ofAlter(
                                   part,
                                   previousOffset,

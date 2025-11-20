@@ -721,7 +721,14 @@ public class YugabyteDBStreamingChangeEventSource implements
                                             
                                             Table updatedTable = schema.tableForTablet(tableId, tabletId);
                                             if (updatedTable != null) {
-                                                String ddl = "-- DDL change for table " + tableId;
+                                                // Note: YugabyteDB CDC doesn't provide actual DDL text (unlike MySQL binlog).
+                                                String ddl = String.format(
+                                                    "-- Schema change detected for %s.%s (columns: %d, primary keys: %s)",
+                                                    tableId.schema(),
+                                                    tableId.table(),
+                                                    updatedTable.columns().size(),
+                                                    String.join(", ", updatedTable.primaryKeyColumnNames())
+                                                );
                                                 SchemaChangeEvent schemaChangeEvent = SchemaChangeEvent.ofAlter(
                                                         part,
                                                         offsetContext,
