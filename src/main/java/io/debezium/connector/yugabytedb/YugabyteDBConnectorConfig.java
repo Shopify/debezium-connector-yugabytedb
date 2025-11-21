@@ -1999,10 +1999,24 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
         }
         
         try {
-            DatabaseHistory history = config.getInstance(DATABASE_HISTORY, DatabaseHistory.class);
+            // If database.history.kafka.topic is not explicitly set, 
+            // automatically append "-schemachanges" to the logical name (server name)
+            String historyTopicKey = "database.history.kafka.topic";
+            Configuration historyConfig = config;
+            
+            if (!config.hasKey(historyTopicKey)) {
+                String logicalName = getLogicalName();
+                String topicName = logicalName + "-schemachanges";
+                historyConfig = config.edit()
+                    .with(historyTopicKey, topicName)
+                    .build();
+                LOGGER.info("Auto-configured schema history topic name: {}", topicName);
+            }
+            
+            DatabaseHistory history = historyConfig.getInstance(DATABASE_HISTORY, DatabaseHistory.class);
             if (history != null) {
                 // Configure with null comparator and listener for write-only mode
-                history.configure(config, null, null, true);
+                history.configure(historyConfig, null, null, true);
                 history.start();
                 LOGGER.info("Database history initialized: {}", history.getClass().getName());
             }
