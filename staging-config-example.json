@@ -1,0 +1,41 @@
+{
+  "name": "yugabytedb-connector-globaldb-core-products-staging",
+  "config": {
+    "connector.class": "io.debezium.connector.yugabytedb.YugabyteDBgRPCConnector",
+    
+    "tasks.max": "1",
+    
+    "database.hostname": "REPLACE_WITH_YUGABYTEDB_HOST",
+    "database.port": "5433",
+    "database.master.addresses": "REPLACE_WITH_MASTER_ADDRESSES",
+    "database.user": "REPLACE_WITH_USERNAME",
+    "database.password": "REPLACE_WITH_PASSWORD",
+    "database.dbname": "globaldb",
+    "database.streamid": "REPLACE_WITH_STREAM_ID_OR_SLOT_NAME",
+    
+    "database.server.name": "globaldb-staging",
+    
+    "table.include.list": "core.products",
+    
+    "snapshot.mode": "initial",
+    
+    "database.history": "io.debezium.relational.history.KafkaDatabaseHistory",
+    "database.history.kafka.topic": "globaldb-staging-schemachanges",
+    "database.history.kafka.bootstrap.servers": "REPLACE_WITH_KAFKA_BOOTSTRAP_SERVERS",
+    "database.history.kafka.recovery.poll.interval.ms": "100",
+    "database.history.kafka.recovery.attempts": "100",
+    
+    "topic.prefix": "globaldb-staging",
+    
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true",
+    "value.converter.schemas.enable": "true",
+    
+    "transforms": "",
+    
+    "errors.tolerance": "none",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true"
+  }
+}
