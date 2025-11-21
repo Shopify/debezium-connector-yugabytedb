@@ -1,0 +1,24 @@
+{
+  "name": "globaldb-core-products-connector-staging",
+  "config": {
+    "connector.class": "io.debezium.connector.yugabytedb.YugabyteDBgRPCConnector",
+    
+    "database.hostname": "REPLACE_WITH_STAGING_HOST",
+    "database.port": "5433",
+    "database.master.addresses": "REPLACE_WITH_MASTER_ADDRESSES",
+    "database.user": "yugabyte",
+    "database.password": "REPLACE_WITH_PASSWORD",
+    "database.dbname": "globaldb",
+    "database.server.name": "globaldb-core-products",
+    
+    "database.streamid": "REPLACE_WITH_STREAM_ID_OR_USE_PUBLICATION",
+    
+    "table.include.list": "core.products",
+    
+    "snapshot.mode": "never",
+    
+    "database.history": "io.debezium.relational.history.KafkaDatabaseHistory",
+    "database.history.kafka.topic": "globaldb-core-products-schemachanges",
+    "database.history.kafka.bootstrap.servers": "REPLACE_WITH_KAFKA_BROKERS"
+  }
+}
