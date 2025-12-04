@@ -64,10 +64,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
     private static final Logger LOGGER = LoggerFactory.getLogger(YugabyteDBSchemaHistoryProducer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    // Singleton instances - one producer per topic (shared across all tasks)
-    private static final ConcurrentHashMap<String, YugabyteDBSchemaHistoryProducer> INSTANCES = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, AtomicInteger> REFERENCE_COUNTS = new ConcurrentHashMap<>();
-
     private final String topicName;
     private final String bootstrapServers;
     private final String connectorName;
@@ -81,7 +77,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
 
     private KafkaProducer<String, String> producer;
     private final AtomicBoolean initialized = new AtomicBoolean(false);
-    private final AtomicBoolean disabled = new AtomicBoolean(false);
 
     // Metrics
     private final AtomicLong schemaHistoryEventsSent = new AtomicLong(0);
@@ -93,101 +88,31 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
     private ObjectName mbeanName;
 
     /**
-     * Gets or creates a schema history producer for the given topic.
-     * Uses singleton pattern to ensure one producer per topic across all tasks.
-     *
-     * @param topicName the Kafka topic to write schema history to (used as singleton key)
-     * @param bootstrapServers the Kafka bootstrap servers
-     * @param connectorName the connector name (used as key prefix)
-     * @param securityProtocol the security protocol (e.g., SSL, PLAINTEXT)
-     * @param sslKeystoreLocation the SSL keystore location
-     * @param sslKeystorePassword the SSL keystore password
-     * @param sslKeystoreType the SSL keystore type
-     * @param sslTruststoreLocation the SSL truststore location
-     * @param sslTruststorePassword the SSL truststore password
-     * @param sslTruststoreType the SSL truststore type
-     * @return the singleton producer instance for this topic
+     * Creates a schema history producer for the given topic.
+     * Each task creates its own producer instance following MySQL connector pattern.
+     * @param topicName the Kafka topic to write schema history to
+     * @param connectorName the connector name (used as client ID prefix)
      */
-    public static YugabyteDBSchemaHistoryProducer getInstance(
+    public YugabyteDBSchemaHistoryProducer(
             String topicName,
-            String bootstrapServers,
-            String connectorName,
-            String securityProtocol,
-            String sslKeystoreLocation,
-            String sslKeystorePassword,
-            String sslKeystoreType,
-            String sslTruststoreLocation,
-            String sslTruststorePassword,
-            String sslTruststoreType) {
-
-        return INSTANCES.computeIfAbsent(topicName, key -> {
-            LOGGER.info("Creating singleton schema history producer for topic: {}", topicName);
-            REFERENCE_COUNTS.put(topicName, new AtomicInteger(0));
-            return new YugabyteDBSchemaHistoryProducer(
-                    topicName, bootstrapServers, connectorName, securityProtocol,
-                    sslKeystoreLocation, sslKeystorePassword, sslKeystoreType,
-                    sslTruststoreLocation, sslTruststorePassword, sslTruststoreType);
-        });
-    }
-
-    /**
-     * Increments the reference count for this producer instance.
-     * Should be called by each task that uses the producer.
-     */
-    public void acquire() {
-        AtomicInteger refCount = REFERENCE_COUNTS.get(topicName);
-        if (refCount != null) {
-            int count = refCount.incrementAndGet();
-            LOGGER.debug("Schema history producer for topic {} acquired, ref count: {}", topicName, count);
-        }
-    }
-
-    /**
-     * Decrements the reference count and closes the producer if no longer used.
-     * Should be called by each task when it's done using the producer.
-     */
-    public void release() {
-        AtomicInteger refCount = REFERENCE_COUNTS.get(topicName);
-        if (refCount != null) {
-            int count = refCount.decrementAndGet();
-            LOGGER.debug("Schema history producer for topic {} released, ref count: {}", topicName, count);
-
-            if (count <= 0) {
-                LOGGER.info("Schema history producer for topic {} has no more references, closing", topicName);
-                YugabyteDBSchemaHistoryProducer instance = INSTANCES.remove(topicName);
-                REFERENCE_COUNTS.remove(topicName);
-                if (instance != null) {
-                    instance.closeInternal();
-                }
-            }
-        }
-    }
-
-    /**
-     * Private constructor - use getInstance() instead.
-     */
-    private YugabyteDBSchemaHistoryProducer(
-            String topicName,
-            String bootstrapServers,
-            String connectorName,
-            String securityProtocol,
-            String sslKeystoreLocation,
-            String sslKeystorePassword,
-            String sslKeystoreType,
-            String sslTruststoreLocation,
-            String sslTruststorePassword,
-            String sslTruststoreType) {
+            String connectorName) {
         this.topicName = topicName;
-        this.bootstrapServers = bootstrapServers;
         this.connectorName = connectorName;
-        this.securityProtocol = securityProtocol;
-        this.sslKeystoreLocation = sslKeystoreLocation;
-        this.sslKeystorePassword = sslKeystorePassword;
-        this.sslKeystoreType = sslKeystoreType;
-        this.sslTruststoreLocation = sslTruststoreLocation;
-        this.sslTruststorePassword = sslTruststorePassword;
-        this.sslTruststoreType = sslTruststoreType;
-        LOGGER.info("Schema history producer configured for topic: {}", topicName);
+
+        this.bootstrapServers = System.getenv("BOOTSTRAP_SERVERS");
+        if (this.bootstrapServers == null || this.bootstrapServers.isEmpty()) {
+            LOGGER.warn("BOOTSTRAP_SERVERS environment variable not set, schema history producer may fail");
+        }
+
+        this.securityProtocol = "SSL";
+        this.sslKeystoreLocation = System.getenv().getOrDefault("SSL_KEYSTORE_LOCATION", "/ssl/kafka-client/keystore.p12");
+        this.sslTruststoreLocation = System.getenv().getOrDefault("SSL_TRUSTSTORE_LOCATION", "/app/ssl/truststore.p12");
+        this.sslKeystorePassword = System.getenv("SSL_KEYSTORE_PASSWORD");
+        this.sslTruststorePassword = System.getenv("SSL_TRUSTSTORE_PASSWORD");
+        this.sslKeystoreType = "PKCS12";
+        this.sslTruststoreType = "PKCS12";
+
+        LOGGER.info("Schema history producer configured for topic: {} (bootstrap: {})", topicName, bootstrapServers);
 
         try {
             String metricName = "debezium.yugabytedb:type=schema-history-producer,topic=" +
@@ -204,12 +129,11 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
     }
 
     /**
-     * Lazily initializes the Kafka producer. If initialization fails, the producer
-     * is disabled and all subsequent operations become no-ops.
-     *
+     * Lazily initializes the Kafka producer. If initialization fails, throws an exception
+     * to fail the connector task.
      */
     private synchronized void ensureInitialized() {
-        if (disabled.get() || initialized.get()) {
+        if (initialized.get()) {
             return;
         }
         
@@ -265,8 +189,8 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
             initialized.set(true);
             LOGGER.info("Schema history producer initialized successfully for topic: {}", topicName);
         } catch (Throwable t) {
-            LOGGER.error("Failed to initialize schema history producer, disabling feature: {}", t.getMessage(), t);
-            disabled.set(true);
+            LOGGER.error("Failed to initialize schema history producer: {}", t.getMessage(), t);
+            throw new RuntimeException("Schema history producer failed to initialize - Kafka unreachable or misconfigured", t);
         }
     }
 
@@ -279,14 +203,10 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
      * @param eventType the type of event (e.g., "DDL", "INITIAL")
      */
     public void recordSchemaChange(String tableId, String tabletId, CdcService.CDCSDKSchemaPB schema, String eventType) {
-        if (disabled.get()) {
-            return;
-        }
-        
         try {
             ensureInitialized();
-            if (disabled.get() || producer == null) {
-                return;
+            if (producer == null) {
+                throw new IllegalStateException("Producer not initialized");
             }
             
             String key = connectorName + ":" + tableId;
@@ -391,7 +311,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             StringBuilder schemaString = new StringBuilder();
 
-            // Build deterministic string representation of schema
             List<Column> columns = table.columns();
             for (Column col : columns) {
                 schemaString.append(col.name()).append(":");
@@ -401,7 +320,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
                 schemaString.append(col.scale().orElse(null)).append(";");
             }
 
-            // Include primary key information
             List<String> pkColumns = table.primaryKeyColumnNames();
             schemaString.append("PK:");
             for (String pkCol : pkColumns) {
@@ -443,14 +361,10 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
             String tabletId,
             YugabyteDBSchema schema,
             String eventType) {
-        if (disabled.get()) {
-            return;
-        }
-
         try {
             ensureInitialized();
-            if (disabled.get() || producer == null) {
-                return;
+            if (producer == null) {
+                throw new IllegalStateException("Producer not initialized");
             }
 
             Table table = schema.tableForTablet(tableId, tabletId);
@@ -549,14 +463,10 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
     }
 
     /**
-     * Closes the producer (delegates to release() for reference counting).
+     * Closes this schema history producer and releases its resources.
      * This should be called by tasks when they're done using the producer.
      */
     public void close() {
-        release();
-    }
-
-    private void closeInternal() {
         if (mbeanName != null) {
             try {
                 MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
@@ -578,10 +488,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
                 LOGGER.warn("Error closing schema history producer for {}: {}", connectorName, t.getMessage());
             }
         }
-    }
-
-    public boolean isDisabled() {
-        return disabled.get();
     }
 
     @Override
@@ -622,12 +528,6 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
     @Override
     public String getLastErrorMessage() {
         return lastErrorMessage;
-    }
-
-    @Override
-    public int getReferenceCount() {
-        AtomicInteger refCount = REFERENCE_COUNTS.get(topicName);
-        return refCount != null ? refCount.get() : 0;
     }
 
     @Override
