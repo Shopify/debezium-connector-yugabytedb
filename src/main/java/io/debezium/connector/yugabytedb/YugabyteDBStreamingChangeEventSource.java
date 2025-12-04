@@ -138,9 +138,15 @@ public class YugabyteDBStreamingChangeEventSource implements
         }
 
         if (connectorConfig.isSchemaHistoryEnabled()) {
+            String clientIdBase = connectorConfig.getConfig().getString("name");
+            String taskId = taskContext.getTaskId();
+            if (taskId == null || taskId.isEmpty()) {
+                throw new DebeziumException("Task ID is not available in task context");
+            }
+            String clientId = clientIdBase + "-" + taskId;
             this.schemaHistoryProducer = new YugabyteDBSchemaHistoryProducer(
                     connectorConfig.schemaHistoryKafkaTopic(),
-                    connectorConfig.getLogicalName(),
+                    clientId,
                     connectorConfig.schemaHistoryBootstrapServers(),
                     connectorConfig.schemaHistoryProducerSecurityProtocol(),
                     connectorConfig.schemaHistoryProducerSslKeystoreLocation(),

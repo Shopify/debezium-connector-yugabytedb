@@ -115,16 +115,14 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
         this.topicName = topicName;
         this.connectorName = connectorName;
         this.bootstrapServers = bootstrapServers;
-        this.securityProtocol = securityProtocol != null ? securityProtocol : "PLAINTEXT";
+        this.securityProtocol = securityProtocol;
         this.sslKeystoreLocation = sslKeystoreLocation;
         this.sslKeystorePassword = sslKeystorePassword;
-        this.sslKeystoreType = sslKeystoreType != null ? sslKeystoreType : "PKCS12";
+        this.sslKeystoreType = sslKeystoreType;
         this.sslTruststoreLocation = sslTruststoreLocation;
         this.sslTruststorePassword = sslTruststorePassword;
-        this.sslTruststoreType = sslTruststoreType != null ? sslTruststoreType : "PKCS12";
-
-        LOGGER.info("Schema history producer configured for topic: {} (bootstrap: {}, security: {})",
-                topicName, bootstrapServers, this.securityProtocol);
+        this.sslTruststoreType = sslTruststoreType;
+        LOGGER.info("Schema history producer configured for topic: {}", topicName);
 
         try {
             String metricName = "debezium.yugabytedb:type=schema-history-producer,topic=" +
