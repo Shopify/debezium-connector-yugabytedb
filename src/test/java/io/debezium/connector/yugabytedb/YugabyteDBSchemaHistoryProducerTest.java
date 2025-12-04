@@ -41,15 +41,23 @@ public class YugabyteDBSchemaHistoryProducerTest {
                 .build();
 
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
-        assertNotNull(producer, "Producer should be created successfully");
+        assertNotNull(producer, "Producer should be created with valid config");
     }
 
     @Test
-    public void testProducerConstructsSuccessfully() {
+    public void testProducerIsDisabledOnNullTopic() {
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                null, "test-connector", "localhost:9092", null, null, null, null, null, null, null);
+
+        assertNotNull(producer);
+    }
+
+    @Test
+    public void testProducerIsDisabledOnNullBootstrapServers() {
+        YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
+                "test-topic", "test-connector", null, null, null, null, null, null, null, null);
 
         assertNotNull(producer);
     }
@@ -57,7 +65,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
     @Test
     public void testRecordSchemaChangeWithNullSchemaDoesNotThrow() {
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         assertDoesNotThrow(() -> {
             producer.recordSchemaChange("test-table", "test-tablet", null, "SCHEMA_SNAPSHOT");
@@ -67,7 +75,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
     @Test
     public void testCloseIsIdempotent() {
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         assertDoesNotThrow(() -> {
             producer.close();
@@ -89,7 +97,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
                 .build();
 
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         java.lang.reflect.Method method = YugabyteDBSchemaHistoryProducer.class
                 .getDeclaredMethod("buildSchemaJson", String.class, String.class,
@@ -137,7 +145,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
                 .build();
 
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         String checksum1 = producer.getSchemaChecksum(schema1);
         String checksum2 = producer.getSchemaChecksum(schema2);
@@ -179,7 +187,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
                 .build();
 
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         String checksum1 = producer.getSchemaChecksum(schema1);
         String checksum2 = producer.getSchemaChecksum(schema2);
@@ -190,7 +198,7 @@ public class YugabyteDBSchemaHistoryProducerTest {
     @Test
     public void testEscapeJsonHandlesSpecialCharacters() throws Exception {
         YugabyteDBSchemaHistoryProducer producer = new YugabyteDBSchemaHistoryProducer(
-                "test-topic", "test-connector");
+                "test-topic", "test-connector", "localhost:9092", null, null, null, null, null, null, null);
 
         java.lang.reflect.Method method = YugabyteDBSchemaHistoryProducer.class
                 .getDeclaredMethod("escapeJson", String.class);

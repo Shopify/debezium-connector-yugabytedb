@@ -92,27 +92,39 @@ public class YugabyteDBSchemaHistoryProducer implements YugabyteDBSchemaHistoryM
      * Each task creates its own producer instance following MySQL connector pattern.
      * @param topicName the Kafka topic to write schema history to
      * @param connectorName the connector name (used as client ID prefix)
+     * @param bootstrapServers Kafka bootstrap servers
+     * @param securityProtocol Security protocol (SSL, PLAINTEXT, etc.)
+     * @param sslKeystoreLocation SSL keystore location (optional)
+     * @param sslKeystorePassword SSL keystore password (optional)
+     * @param sslKeystoreType SSL keystore type (PKCS12, JKS, etc.)
+     * @param sslTruststoreLocation SSL truststore location (optional)
+     * @param sslTruststorePassword SSL truststore password (optional)
+     * @param sslTruststoreType SSL truststore type (PKCS12, JKS, etc.)
      */
     public YugabyteDBSchemaHistoryProducer(
             String topicName,
-            String connectorName) {
+            String connectorName,
+            String bootstrapServers,
+            String securityProtocol,
+            String sslKeystoreLocation,
+            String sslKeystorePassword,
+            String sslKeystoreType,
+            String sslTruststoreLocation,
+            String sslTruststorePassword,
+            String sslTruststoreType) {
         this.topicName = topicName;
         this.connectorName = connectorName;
+        this.bootstrapServers = bootstrapServers;
+        this.securityProtocol = securityProtocol != null ? securityProtocol : "PLAINTEXT";
+        this.sslKeystoreLocation = sslKeystoreLocation;
+        this.sslKeystorePassword = sslKeystorePassword;
+        this.sslKeystoreType = sslKeystoreType != null ? sslKeystoreType : "PKCS12";
+        this.sslTruststoreLocation = sslTruststoreLocation;
+        this.sslTruststorePassword = sslTruststorePassword;
+        this.sslTruststoreType = sslTruststoreType != null ? sslTruststoreType : "PKCS12";
 
-        this.bootstrapServers = System.getenv("BOOTSTRAP_SERVERS");
-        if (this.bootstrapServers == null || this.bootstrapServers.isEmpty()) {
-            LOGGER.warn("BOOTSTRAP_SERVERS environment variable not set, schema history producer may fail");
-        }
-
-        this.securityProtocol = "SSL";
-        this.sslKeystoreLocation = System.getenv().getOrDefault("SSL_KEYSTORE_LOCATION", "/ssl/kafka-client/keystore.p12");
-        this.sslTruststoreLocation = System.getenv().getOrDefault("SSL_TRUSTSTORE_LOCATION", "/app/ssl/truststore.p12");
-        this.sslKeystorePassword = System.getenv("SSL_KEYSTORE_PASSWORD");
-        this.sslTruststorePassword = System.getenv("SSL_TRUSTSTORE_PASSWORD");
-        this.sslKeystoreType = "PKCS12";
-        this.sslTruststoreType = "PKCS12";
-
-        LOGGER.info("Schema history producer configured for topic: {} (bootstrap: {})", topicName, bootstrapServers);
+        LOGGER.info("Schema history producer configured for topic: {} (bootstrap: {}, security: {})",
+                topicName, bootstrapServers, this.securityProtocol);
 
         try {
             String metricName = "debezium.yugabytedb:type=schema-history-producer,topic=" +
