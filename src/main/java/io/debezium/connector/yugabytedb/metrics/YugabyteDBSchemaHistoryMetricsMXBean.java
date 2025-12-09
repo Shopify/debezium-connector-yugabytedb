@@ -18,11 +18,6 @@ public interface YugabyteDBSchemaHistoryMetricsMXBean {
     String getTopicName();
 
     /**
-     * @return true if the producer is disabled due to initialization failure
-     */
-    boolean isDisabled();
-
-    /**
      * @return true if the producer has been initialized
      */
     boolean isInitialized();
@@ -56,11 +51,6 @@ public interface YugabyteDBSchemaHistoryMetricsMXBean {
      * @return the last error message from a failed send, or null if none
      */
     String getLastErrorMessage();
-
-    /**
-     * @return current reference count (number of tasks using this producer)
-     */
-    int getReferenceCount();
 
     /**
      * Resets all counters to zero.

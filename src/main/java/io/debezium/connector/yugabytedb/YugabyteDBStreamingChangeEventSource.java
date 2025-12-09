@@ -137,28 +137,28 @@ public class YugabyteDBStreamingChangeEventSource implements
             TEST_explicitCheckpoints = new ConcurrentHashMap<>();
         }
 
-        try {
-            if (connectorConfig.isSchemaHistoryEnabled()) {
-                this.schemaHistoryProducer = YugabyteDBSchemaHistoryProducer.getInstance(
-                        connectorConfig.schemaHistoryKafkaTopic(),
-                        connectorConfig.schemaHistoryBootstrapServers(),
-                        connectorConfig.getLogicalName(),
-                        connectorConfig.schemaHistoryProducerSecurityProtocol(),
-                        connectorConfig.schemaHistoryProducerSslKeystoreLocation(),
-                        connectorConfig.schemaHistoryProducerSslKeystorePassword(),
-                        connectorConfig.schemaHistoryProducerSslKeystoreType(),
-                        connectorConfig.schemaHistoryProducerSslTruststoreLocation(),
-                        connectorConfig.schemaHistoryProducerSslTruststorePassword(),
-                        connectorConfig.schemaHistoryProducerSslTruststoreType()
-                );
-                this.schemaHistoryProducer.acquire();
-                LOGGER.info("Schema history producer enabled for topic: {}", connectorConfig.schemaHistoryKafkaTopic());
-            } else {
-                LOGGER.debug("Schema history producer not configured");
+        if (connectorConfig.isSchemaHistoryEnabled()) {
+            String clientIdBase = connectorConfig.getConfig().getString("name");
+            String taskId = taskContext.getTaskId();
+            if (taskId == null || taskId.isEmpty()) {
+                throw new DebeziumException("Task ID is not available in task context");
             }
-        } catch (Throwable t) {
-            LOGGER.warn("Failed to initialize schema history producer, feature disabled: {}", t.getMessage());
-            this.schemaHistoryProducer = null;
+            String clientId = clientIdBase + "-" + taskId;
+            this.schemaHistoryProducer = new YugabyteDBSchemaHistoryProducer(
+                    connectorConfig.schemaHistoryKafkaTopic(),
+                    clientId,
+                    connectorConfig.schemaHistoryBootstrapServers(),
+                    connectorConfig.schemaHistoryProducerSecurityProtocol(),
+                    connectorConfig.schemaHistoryProducerSslKeystoreLocation(),
+                    connectorConfig.schemaHistoryProducerSslKeystorePassword(),
+                    connectorConfig.schemaHistoryProducerSslKeystoreType(),
+                    connectorConfig.schemaHistoryProducerSslTruststoreLocation(),
+                    connectorConfig.schemaHistoryProducerSslTruststorePassword(),
+                    connectorConfig.schemaHistoryProducerSslTruststoreType()
+            );
+            LOGGER.info("Schema history producer enabled for topic: {}", connectorConfig.schemaHistoryKafkaTopic());
+        } else {
+            LOGGER.debug("Schema history producer not configured");
         }
     }
 
@@ -746,15 +746,11 @@ public class YugabyteDBStreamingChangeEventSource implements
 
                                         // Publish schema history for DDL events
                                         if (schemaHistoryProducer != null && tableId != null) {
-                                            try {
-                                                // If registering schema for first time on fresh start, publish SCHEMA_SNAPSHOT
-                                                // Otherwise publish SCHEMA_CHANGE for actual schema changes
-                                                String eventType = (t == null && !previousOffsetPresent) ? "SCHEMA_SNAPSHOT" : "SCHEMA_CHANGE";
-                                                schemaHistoryProducer.recordSchemaChange(
-                                                        tableId.toString(), tabletId, message.getSchema(), eventType);
-                                            } catch (Exception e) {
-                                                LOGGER.warn("Failed to record schema history for {}: {}", tableId, e.getMessage());
-                                            }
+                                            // If registering schema for first time on fresh start, publish SCHEMA_SNAPSHOT
+                                            // Otherwise publish SCHEMA_CHANGE for actual schema changes
+                                            String eventType = (t == null && !previousOffsetPresent) ? "SCHEMA_SNAPSHOT" : "SCHEMA_CHANGE";
+                                            schemaHistoryProducer.recordSchemaChange(
+                                                    tableId.toString(), tabletId, message.getSchema(), eventType);
                                         }
                                     }
                                     // DML event
@@ -769,15 +765,12 @@ public class YugabyteDBStreamingChangeEventSource implements
                                             Objects.requireNonNull(tableId);
                                         }
 
+                                        // Publish SCHEMA_SNAPSHOT for DML events when schema is first encountered
                                         if (schemaHistoryProducer != null && tableId != null && message.getSchema() != null) {
                                             Table t = schema.tableForTablet(tableId, tabletId);
                                             if (t == null && !previousOffsetPresent) {
-                                                try {
-                                                    schemaHistoryProducer.recordSchemaChange(
-                                                            tableId.toString(), tabletId, message.getSchema(), "SCHEMA_SNAPSHOT");
-                                                } catch (Exception e) {
-                                                    LOGGER.warn("Failed to record schema history for {}: {}", tableId, e.getMessage());
-                                                }
+                                                schemaHistoryProducer.recordSchemaChange(
+                                                        tableId.toString(), tabletId, message.getSchema(), "SCHEMA_SNAPSHOT");
                                             }
                                         }
 

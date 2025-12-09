@@ -1610,7 +1610,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     SCHEMA_HISTORY_PRODUCER_SSL_KEYSTORE_TYPE,
                     SCHEMA_HISTORY_PRODUCER_SSL_TRUSTSTORE_LOCATION,
                     SCHEMA_HISTORY_PRODUCER_SSL_TRUSTSTORE_PASSWORD,
-                    SCHEMA_HISTORY_PRODUCER_SSL_TRUSTSTORE_TYPE)
+                    SCHEMA_HISTORY_PRODUCER_SSL_TRUSTSTORE_TYPE
+            )
             .excluding(INCLUDE_SCHEMA_CHANGES)
             .create();
 
@@ -2060,6 +2061,16 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     }
 
     /**
+     * Checks if schema history output is enabled.
+     *
+     * @return true if topic is configured
+     */
+    public boolean isSchemaHistoryEnabled() {
+        String topic = schemaHistoryKafkaTopic();
+        return topic != null && !topic.isEmpty();
+    }
+
+    /**
      * Gets the Kafka bootstrap servers for schema history.
      *
      * @return the bootstrap servers
@@ -2129,17 +2140,6 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
      */
     public String schemaHistoryProducerSslTruststoreType() {
         return getConfig().getString(SCHEMA_HISTORY_PRODUCER_SSL_TRUSTSTORE_TYPE);
-    }
-
-    /**
-     * Checks if schema history output is enabled.
-     *
-     * @return true if both topic is configured and BOOTSTRAP_SERVERS env var is set
-     */
-    public boolean isSchemaHistoryEnabled() {
-        String topic = schemaHistoryKafkaTopic();
-        String servers = schemaHistoryBootstrapServers();
-        return topic != null && !topic.isEmpty() && servers != null && !servers.isEmpty();
     }
 
     private static class SystemTablesPredicate implements TableFilter {
