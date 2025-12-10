@@ -106,8 +106,6 @@ public class YugabyteDBStreamingChangeEventSource implements
     // and the value is tablet UUID
     protected List<Pair<String, String>> tabletPairList;
 
-    protected YugabyteDBSchemaHistoryProducer schemaHistoryProducer;
-
     public YugabyteDBStreamingChangeEventSource(YugabyteDBConnectorConfig connectorConfig, Snapshotter snapshotter,
                                                 YugabyteDBConnection connection, YugabyteDBEventDispatcher<TableId> dispatcher, ErrorHandler errorHandler, Clock clock,
                                                 YugabyteDBSchema schema, YugabyteDBTaskContext taskContext, ReplicationConnection replicationConnection,
@@ -135,30 +133,6 @@ public class YugabyteDBStreamingChangeEventSource implements
 
         if (TEST_TRACK_EXPLICIT_CHECKPOINTS) {
             TEST_explicitCheckpoints = new ConcurrentHashMap<>();
-        }
-
-        if (connectorConfig.isSchemaHistoryEnabled()) {
-            String clientIdBase = connectorConfig.getConfig().getString("name");
-            String taskId = taskContext.getTaskId();
-            if (taskId == null || taskId.isEmpty()) {
-                throw new DebeziumException("Task ID is not available in task context");
-            }
-            String clientId = clientIdBase + "-" + taskId;
-            this.schemaHistoryProducer = new YugabyteDBSchemaHistoryProducer(
-                    connectorConfig.schemaHistoryKafkaTopic(),
-                    clientId,
-                    connectorConfig.schemaHistoryBootstrapServers(),
-                    connectorConfig.schemaHistoryProducerSecurityProtocol(),
-                    connectorConfig.schemaHistoryProducerSslKeystoreLocation(),
-                    connectorConfig.schemaHistoryProducerSslKeystorePassword(),
-                    connectorConfig.schemaHistoryProducerSslKeystoreType(),
-                    connectorConfig.schemaHistoryProducerSslTruststoreLocation(),
-                    connectorConfig.schemaHistoryProducerSslTruststorePassword(),
-                    connectorConfig.schemaHistoryProducerSslTruststoreType()
-            );
-            LOGGER.info("Schema history producer enabled for topic: {}", connectorConfig.schemaHistoryKafkaTopic());
-        } else {
-            LOGGER.debug("Schema history producer not configured");
         }
     }
 
@@ -396,48 +370,34 @@ public class YugabyteDBStreamingChangeEventSource implements
             Map<String, Boolean> schemaNeeded = new HashMap<>();
             Map<String, Long> tabletSafeTime = new HashMap<>();
             for (Pair<String, String> entry : tabletPairList) {
-                String tableId = entry.getKey();
-                String tabletId = entry.getValue();
+                // entry.getValue() will give the tabletId
                 OpId opId = YBClientUtils.getOpIdFromGetTabletListResponse(
-                        tabletListResponse.get(tableId), tabletId);
+                        tabletListResponse.get(entry.getKey()), entry.getValue());
 
                 if (opId == null) {
                     Set<String> tabletsForTable =
-                            tabletListResponse.get(tableId).getTabletCheckpointPairList().stream()
+                            tabletListResponse.get(entry.getKey()).getTabletCheckpointPairList().stream()
                                     .map(pair -> pair.getTabletLocations().getTabletId().toStringUtf8())
                                     .collect(Collectors.toSet());
                     LOGGER.error("No entry for tablet {} was found in the response for table {} from service, current entries {}",
-                            tabletId, tableId, tabletsForTable);
+                            entry.getValue(), entry.getKey(), tabletsForTable);
                     throw new RuntimeException(String.format("OpId for the given tablet %s was not found for table %s"
                                     + " in the response, restart the connector to try again",
-                            tabletId, tableId));
+                            entry.getValue(), entry.getKey()));
                 }
 
                 // If we are getting a term and index as -1 and -1 from the server side it means
                 // that the streaming has not yet started on that tablet ID. In that case, assign a
                 // starting OpId so that the connector can poll using proper checkpoints.
-                LOGGER.info("Checkpoint from GetTabletListToPollForCDC for tablet {} as {}", tabletId, opId);
+                LOGGER.info("Checkpoint from GetTabletListToPollForCDC for tablet {} as {}", entry.getValue(), opId);
                 if (opId.getTerm() == -1 && opId.getIndex() == -1) {
                     opId = YugabyteDBOffsetContext.streamingStartLsn();
                 }
 
                 // For streaming, we do not want any colocated information and want to process the tables
                 // based on just their tablet IDs - pass false as the 'colocated' flag to enforce the same.
-                YBPartition p = new YBPartition(tableId, tabletId, false /* colocated */);
-
-                boolean shouldRebindOffsets =
-                        this.connectorConfig.getConfig().getBoolean(YugabyteDBConnectorConfig.ENABLE_OFFSET_REBIND);
-
-                OpId initOpId = opId;
-                // Prefer previously persisted offsets (from Kafka) when rebind is enabled.
-                if (shouldRebindOffsets) {
-                    SourceInfo saved = offsetContext.getTabletSourceInfo().get(p.getId());
-                    if (saved != null && saved.lsn() != null) {
-                        initOpId = saved.lsn();
-                        LOGGER.info("Using saved offset for {} -> {}", p.getId(), initOpId.toSerString());
-                    }
-                }
-                offsetContext.initSourceInfo(p, this.connectorConfig, initOpId);
+                YBPartition p = new YBPartition(entry.getKey(), entry.getValue(), false /* colocated */);
+                offsetContext.initSourceInfo(p, this.connectorConfig, opId);
 
                 if (taskContext.shouldEnableExplicitCheckpointing()) {
                     // We can initialise the explicit checkpoint for this tablet to the value returned by
@@ -446,26 +406,6 @@ public class YugabyteDBStreamingChangeEventSource implements
                 }
 
                 schemaNeeded.put(p.getId(), Boolean.TRUE);
-
-                // When enabled, rebind server-side checkpoints from saved offsets to resume from the last streamId.
-                if (shouldRebindOffsets) {
-                    OpId savedOpId = offsetContext.lsn(p);
-                    try {
-                        YBClientUtils.setCheckpoint(
-                                syncClient,
-                                streamId,
-                                tableId,
-                                tabletId,
-                                savedOpId.getTerm(),
-                                savedOpId.getIndex(),
-                                true,
-                                false,
-                                savedOpId.getTime());
-                        tabletSafeTime.put(p.getId(), savedOpId.getTime());
-                    } catch (Exception e) {
-                        LOGGER.warn("Failed to set checkpoint for table {} tablet {} to {}.{}; proceeding", tableId, tabletId, savedOpId.getTerm(), savedOpId.getIndex(), e);
-                    }
-                }
             }
 
             // This will contain the tablet ID mapped to the number of records it has seen
@@ -777,15 +717,6 @@ public class YugabyteDBStreamingChangeEventSource implements
                                                 schema.refreshSchemaWithTabletId(tableId, message.getSchema(), tableId.catalog(), tabletId);
                                             }
                                         }
-
-                                        // Publish schema history for DDL events
-                                        if (schemaHistoryProducer != null && tableId != null) {
-                                            // If registering schema for first time on fresh start, publish SCHEMA_SNAPSHOT
-                                            // Otherwise publish SCHEMA_CHANGE for actual schema changes
-                                            String eventType = (t == null && !previousOffsetPresent) ? "SCHEMA_SNAPSHOT" : "SCHEMA_CHANGE";
-                                            schemaHistoryProducer.recordSchemaChange(
-                                                    tableId.toString(), tabletId, message.getSchema(), eventType);
-                                        }
                                     }
                                     // DML event
                                     else {
@@ -798,16 +729,7 @@ public class YugabyteDBStreamingChangeEventSource implements
                                             }
                                             Objects.requireNonNull(tableId);
                                         }
-
-                                        // Publish SCHEMA_SNAPSHOT for DML events when schema is first encountered
-                                        if (schemaHistoryProducer != null && tableId != null && message.getSchema() != null) {
-                                            Table t = schema.tableForTablet(tableId, tabletId);
-                                            if (t == null && !previousOffsetPresent) {
-                                                schemaHistoryProducer.recordSchemaChange(
-                                                        tableId.toString(), tabletId, message.getSchema(), "SCHEMA_SNAPSHOT");
-                                            }
-                                        }
-
+                                        // If you need to print the received record, change debug level to info
                                         LOGGER.debug("Received DML record {}", record);
 
                                         offsetContext.updateRecordPosition(part, lsn, lastCompletelyProcessedLsn, message.getRawCommitTime(),
