@@ -145,7 +145,7 @@ public class YugabyteDBStreamingChangeEventSource implements
             }
             String clientId = clientIdBase + "-" + taskId;
             this.schemaHistoryProducer = new YugabyteDBSchemaHistoryProducer(
-                    connectorConfig.schemaHistoryKafkaTopic(),
+                    connectorConfig::schemaHistoryTopicForTable, 
                     clientId,
                     connectorConfig.schemaHistoryBootstrapServers(),
                     connectorConfig.schemaHistoryProducerSecurityProtocol(),
@@ -156,7 +156,8 @@ public class YugabyteDBStreamingChangeEventSource implements
                     connectorConfig.schemaHistoryProducerSslTruststorePassword(),
                     connectorConfig.schemaHistoryProducerSslTruststoreType()
             );
-            LOGGER.info("Schema history producer enabled for topic: {}", connectorConfig.schemaHistoryKafkaTopic());
+            LOGGER.info("Schema history producer enabled (per-table topics: {}.{table}-schemachanges)", 
+                    connectorConfig.getLogicalName().replace("-", "."));
         } else {
             LOGGER.debug("Schema history producer not configured");
         }
@@ -463,6 +464,44 @@ public class YugabyteDBStreamingChangeEventSource implements
             // waiting for the bootstrapping to finish so that they can start inserting data now.
             LOGGER.info("Beginning to poll the changes from the server");
 
+            if (schemaHistoryProducer != null && !previousOffsetPresent) {
+                LOGGER.info("Publishing initial schema snapshots for {} tablets via JDBC", tabletPairList.size());
+
+                Set<String> publishedTables = new HashSet<>();
+                try (java.sql.Connection jdbcConn = connection.connection()) {
+                    for (Pair<String, String> entry : tabletPairList) {
+                        try {
+                            YBTable table = tableIdToTable.get(entry.getKey());
+                            String tabletId = entry.getValue();
+
+                            TableId tableId = YBClientUtils.getTableIdFromYbTable(syncClient, table);
+                            if (tableId == null) {
+                                LOGGER.warn("Could not get TableId for table {}, skipping schema snapshot", table.getName());
+                                continue;
+                            }
+
+                            String pgSchemaName = tableId.schema();
+                            String tableName = tableId.table();
+                            String tableKey = pgSchemaName + "." + tableName;
+                            if (!publishedTables.contains(tableKey)) {
+                                LOGGER.info("Publishing SCHEMA_SNAPSHOT for table {}.{} tablet {} via JDBC",
+                                        pgSchemaName, tableName, tabletId);
+                                schemaHistoryProducer.recordSchemaFromJdbc(
+                                        jdbcConn, pgSchemaName, tableName, tabletId, "SCHEMA_SNAPSHOT");
+                                publishedTables.add(tableKey);
+                            }
+                        } catch (Exception e) {
+                            LOGGER.warn("Failed to publish initial schema snapshot for tablet {}: {}",
+                                    entry.getValue(), e.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    LOGGER.warn("Failed to get JDBC connection for schema snapshots: {}", e.getMessage());
+                }
+
+                LOGGER.info("Initial schema snapshot publishing completed for {} tables", publishedTables.size());
+            }
+
             short retryCount = 0;
 
             // Helper internal variable to log GetChanges request at regular intervals.
@@ -746,9 +785,7 @@ public class YugabyteDBStreamingChangeEventSource implements
 
                                         // Publish schema history for DDL events
                                         if (schemaHistoryProducer != null && tableId != null) {
-                                            // If registering schema for first time on fresh start, publish SCHEMA_SNAPSHOT
-                                            // Otherwise publish SCHEMA_CHANGE for actual schema changes
-                                            String eventType = (t == null && !previousOffsetPresent) ? "SCHEMA_SNAPSHOT" : "SCHEMA_CHANGE";
+                                            String eventType = "SCHEMA_CHANGE";
                                             schemaHistoryProducer.recordSchemaChange(
                                                     tableId.toString(), tabletId, message.getSchema(), eventType);
                                         }
@@ -763,15 +800,6 @@ public class YugabyteDBStreamingChangeEventSource implements
                                                 tableId = YugabyteDBSchema.parseWithKeyspace(message.getTable(), connectorConfig.databaseName());
                                             }
                                             Objects.requireNonNull(tableId);
-                                        }
-
-                                        // Publish SCHEMA_SNAPSHOT for DML events when schema is first encountered
-                                        if (schemaHistoryProducer != null && tableId != null && message.getSchema() != null) {
-                                            Table t = schema.tableForTablet(tableId, tabletId);
-                                            if (t == null && !previousOffsetPresent) {
-                                                schemaHistoryProducer.recordSchemaChange(
-                                                        tableId.toString(), tabletId, message.getSchema(), "SCHEMA_SNAPSHOT");
-                                            }
                                         }
 
                                         LOGGER.debug("Received DML record {}", record);
