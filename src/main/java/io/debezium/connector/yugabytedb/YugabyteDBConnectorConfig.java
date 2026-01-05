@@ -777,7 +777,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withValidation(YugabyteDBConnectorConfig::validateReplicationSlotName)
             .withDescription("The name of the YSQL logical decoding slot created for streaming changes from a plugin." +
                     "Defaults to 'debezium");
-    
+
     public static final Field DROP_SLOT_ON_STOP = Field.create("slot.drop.on.stop")
             .withDisplayName("Drop slot on stop")
             .withType(Type.BOOLEAN)
@@ -807,6 +807,13 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withDescription(
                     "Whether or not to delete the logical replication stream when the connector finishes orderly" +
                             "By default the replication is kept so that on restart progress can resume from the last recorded location");
+
+    public static final Field ENABLE_OFFSET_REBIND = Field.create("yugabytedb.enable.offset.rebind")
+            .withDisplayName("Enable resume from saved offsets (rebind checkpoints)")
+            .withType(Type.BOOLEAN)
+            .withImportance(Importance.LOW)
+            .withDefault(false)
+            .withDescription("When true, on startup the connector sets per-tablet CDC checkpoints from saved offsets to resume after stream ID loss");
 
     public enum AutoCreateMode implements EnumeratedValue {
         /**
@@ -1533,7 +1540,9 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     SCHEMA_REFRESH_MODE,
                     TRUNCATE_HANDLING_MODE,
                     INCREMENTAL_SNAPSHOT_CHUNK_SIZE,
-                    TRANSACTION_ORDERING)
+                    TRANSACTION_ORDERING,
+                    ENABLE_OFFSET_REBIND
+            )
             .excluding(INCLUDE_SCHEMA_CHANGES)
             .create();
 
@@ -1848,7 +1857,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.warn(
                         String.format("Error while trying to %s filtered publication. Will retry, attempt %d out of %d",
                                 isUpdate ? "update" : "create", retryCount, maxAttempts));
-                    
+
                 pauseBetweenRetries(config.getLong(RETRY_DELAY_MS));
             }
         }
@@ -1866,7 +1875,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                 LOGGER.trace("Ignoring table {} as it's not included in the filter configuration", tableId);
                 continue;
             }
-            
+
             LOGGER.trace("Adding table {} to the list of captured tables", tableId);
             capturedTables.add(tableId);
         }
@@ -1970,6 +1979,11 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                         org.postgresql.Driver.class.getName(),
                         YugabyteDBConnection.class.getClassLoader(),
                         JdbcConfiguration.PORT.withDefault(YugabyteDBConnectorConfig.PORT.defaultValueAsString()));
+    }
+
+
+    public boolean isEnableOffsetRebind() {
+        return getConfig().getBoolean(ENABLE_OFFSET_REBIND);
     }
 
     private static class SystemTablesPredicate implements TableFilter {
