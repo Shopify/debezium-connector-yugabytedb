@@ -647,7 +647,7 @@ public class YugabyteDBStreamingChangeEventSource implements
                                             if (message.getOperation() == Operation.COMMIT) {
                                                 LOGGER.debug("LSN in case of COMMIT is " + lsn);
                                                 offsetContext.updateRecordPosition(part, lsn, lastCompletelyProcessedLsn, message.getRawCommitTime(),
-                                                        String.valueOf(message.getTransactionId()), null, message.getRecordTime());
+                                                        String.valueOf(message.getTransactionId()), null, message.getRecordTime(), message.getXreplOriginId());
 
                                                 if (recordsInTransactionalBlock.containsKey(part.getId())) {
                                                     if (recordsInTransactionalBlock.get(part.getId()) == 0) {
@@ -676,7 +676,7 @@ public class YugabyteDBStreamingChangeEventSource implements
                                         } else if (message.getOperation() == Operation.COMMIT) {
                                             LOGGER.debug("LSN in case of COMMIT is " + lsn);
                                             offsetContext.updateRecordPosition(part, lsn, lastCompletelyProcessedLsn, message.getRawCommitTime(),
-                                                    String.valueOf(message.getTransactionId()), null, message.getRecordTime());
+                                                    String.valueOf(message.getTransactionId()), null, message.getRecordTime(), message.getXreplOriginId());
                                             dispatcher.dispatchTransactionCommittedEvent(part, offsetContext);
 
                                             if (recordsInTransactionalBlock.containsKey(part.getId())) {
@@ -745,7 +745,7 @@ public class YugabyteDBStreamingChangeEventSource implements
                                         LOGGER.debug("Received DML record {}", record);
 
                                         offsetContext.updateRecordPosition(part, lsn, lastCompletelyProcessedLsn, message.getRawCommitTime(),
-                                                String.valueOf(message.getTransactionId()), tableId, message.getRecordTime());
+                                                String.valueOf(message.getTransactionId()), tableId, message.getRecordTime(), message.getXreplOriginId());
 
                                         // Do not change the error message.
                                         if (TEST_FAIL_WHILE_PROCESSING_BATCH) {

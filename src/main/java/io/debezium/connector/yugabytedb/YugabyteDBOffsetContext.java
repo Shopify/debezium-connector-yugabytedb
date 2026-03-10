@@ -256,6 +256,24 @@ public class YugabyteDBOffsetContext implements OffsetContext {
     public void updateRecordPosition(YBPartition partition, OpId lsn,
                                      OpId lastCompletelyProcessedLsn, long commitTime,
                                      String txId, TableId tableId, Long recordTime) {
+        updateRecordPosition(partition, lsn, lastCompletelyProcessedLsn, commitTime, txId, tableId, recordTime, 0);
+    }
+
+    /**
+     * Update the offsets for the records which are processed by the connector.
+     * @param partition {@link YBPartition} to update the offset for
+     * @param lsn the {@link OpId} value to update with
+     * @param lastCompletelyProcessedLsn {@link OpId}
+     * @param commitTime commit time of the record
+     * @param txId transaction ID to which the record belongs
+     * @param tableId {@link TableId} object to identify the table
+     * @param recordTime record time for the record
+     * @param xreplOriginId replication origin id associated with the transaction
+     */
+    public void updateRecordPosition(YBPartition partition, OpId lsn,
+                                     OpId lastCompletelyProcessedLsn, long commitTime,
+                                     String txId, TableId tableId, Long recordTime,
+                                     int xreplOriginId) {
         SourceInfo info = this.tabletSourceInfo.get(partition.getId());
 
         // There is a possibility upon the transition from snapshot to streaming mode that we try
@@ -265,7 +283,7 @@ public class YugabyteDBOffsetContext implements OffsetContext {
             info = new SourceInfo(connectorConfig, lsn);
         }
 
-        info.update(partition, lsn, commitTime, txId, tableId, recordTime);
+        info.update(partition, lsn, commitTime, txId, tableId, recordTime, xreplOriginId);
         info.updateLastCommit(lsn);
         this.tabletSourceInfo.put(partition.getId(), info);
     }

@@ -31,6 +31,7 @@ public class YugabyteDBSourceInfoStructMaker extends AbstractSourceInfoStructMak
                 .field(SourceInfo.RECORD_TIME, Schema.INT64_SCHEMA)
                 .field(SourceInfo.TABLET_ID, Schema.STRING_SCHEMA)
                 .field(SourceInfo.PARTITION_ID_KEY, Schema.STRING_SCHEMA)
+                .field(SourceInfo.XREPL_ORIGIN_ID, Schema.OPTIONAL_INT32_SCHEMA)
                 .build();
     }
 
@@ -62,6 +63,9 @@ public class YugabyteDBSourceInfoStructMaker extends AbstractSourceInfoStructMak
         }
         if (sourceInfo.lsn() != null) {
             result.put(SourceInfo.LSN_KEY, sourceInfo.lsn().toSerString());
+        }
+        if (sourceInfo.xreplOriginId() != 0) {
+            result.put(SourceInfo.XREPL_ORIGIN_ID, sourceInfo.xreplOriginId());
         }
         return result;
     }
