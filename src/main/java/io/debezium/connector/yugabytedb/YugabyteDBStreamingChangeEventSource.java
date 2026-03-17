@@ -97,6 +97,9 @@ public class YugabyteDBStreamingChangeEventSource implements
 
     protected final Filters filters;
 
+    // This timer is used to log the offset map periodically.
+    protected final ElapsedTimeStrategy offsetLogTimer;
+
     // This set will contain the list of partition IDs for the tablets which have been split
     // and waiting for the callback from Kafka.
     protected Set<String> splitTabletsWaitingForCallback;
@@ -121,6 +124,9 @@ public class YugabyteDBStreamingChangeEventSource implements
         this.snapshotter = snapshotter;
         checkPointMap = new ConcurrentHashMap<>();
         this.connectionProbeTimer = ElapsedTimeStrategy.constant(Clock.system(), connectorConfig.statusUpdateInterval());
+        this.offsetLogTimer = connectorConfig.logCommitOffsetIntervalMs() > 0
+                ? ElapsedTimeStrategy.constant(Clock.system(), connectorConfig.logCommitOffsetIntervalMs())
+                : null;
 
         String masterAddress = connectorConfig.masterAddresses();
         yugabyteDBTypeRegistry = taskContext.schema().getTypeRegistry();
@@ -977,12 +983,23 @@ public class YugabyteDBStreamingChangeEventSource implements
 
         try {
             LOGGER.info("{} | Committing offsets on server", taskContext.getTaskId());
+            // Log the offset map periodically based on the configuration. Default is 10 minutes.
+            // To change the interval, set the property "log.commit.offset.interval.ms" in the configuration.
+            // Set to -1 to disable.
+            if (offsetLogTimer != null && offsetLogTimer.hasElapsed()) {
+                LOGGER.info("{} | Offset map:", taskContext.getTaskId());
+                for (Map.Entry<String, ?> entry : offset.entrySet()) {
+                    if (!entry.getKey().equals("transaction_id")) {
+                        LOGGER.info("{} | Tablet: {} OpId: {}", taskContext.getTaskId(), entry.getKey(), entry.getValue());
+                    }
+                }
+            }
 
             for (Map.Entry<String, ?> entry : offset.entrySet()) {
                 // TODO: The transaction_id field is getting populated somewhere and see if it can
                 // be removed or blocked from getting added to this map.
                 if (!entry.getKey().equals("transaction_id")) {
-                    LOGGER.debug("Tablet: {} OpId: {}", entry.getKey(), entry.getValue());
+                    LOGGER.debug("{} | Tablet: {} OpId: {}", taskContext.getTaskId(), entry.getKey(), entry.getValue());
 
                     // Parse the string to get the OpId object.
                     OpId tempOpId = OpId.valueOf((String) entry.getValue());
