@@ -238,7 +238,7 @@ public final class SourceInfo extends BaseSourceInfo {
             sb.append(", table=").append(tableName);
         }
         if (xreplOriginId != 0) {
-            sb.append(", origin=").append(xreplOriginId);
+            sb.append(", origin_id=").append(xreplOriginId);
         }
         sb.append(']');
         return sb.toString();
