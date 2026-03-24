@@ -40,7 +40,7 @@ public final class SourceInfo extends BaseSourceInfo {
     public static final String TABLE_ID = "table_id";
     public static final String TABLET_ID = "tablet_id";
     public static final String PARTITION_ID_KEY = "partition_id";
-    public static final String XREPL_ORIGIN_ID = "origin";
+    public static final String XREPL_ORIGIN_ID = "origin_id";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
