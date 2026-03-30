@@ -7,7 +7,6 @@ package io.debezium.connector.yugabytedb;
  */
 
 import io.debezium.data.Envelope;
-import io.debezium.heartbeat.Heartbeat;
 import io.debezium.heartbeat.HeartbeatFactory;
 import io.debezium.pipeline.signal.Signal;
 import io.debezium.pipeline.source.spi.DataChangeEventListener;
@@ -55,7 +54,6 @@ public class YugabyteDBEventDispatcher<T extends DataCollectionId> extends Event
     private final InconsistentSchemaHandler<YBPartition, T> inconsistentSchemaHandler;
     private final Signal<YBPartition> signal;
     private final boolean neverSkip;
-    private final Heartbeat heartbeat;
     private final EnumSet<Envelope.Operation> skippedOperations;
     private final DataCollectionFilters.DataCollectionFilter<T> filter;
     private final YugabyteDBTransactionMonitor transactionMonitor;
@@ -74,7 +72,6 @@ public class YugabyteDBEventDispatcher<T extends DataCollectionId> extends Event
         this.logicalDecodingMessageMonitor = new LogicalDecodingMessageMonitor(connectorConfig, this::enqueueLogicalDecodingMessage);
         this.messageFilter = connectorConfig.getMessageFilter();
         this.topicSelector = topicSelector;
-        this.heartbeat = heartbeatFactory.createHeartbeat();
         this.streamingReceiver = new YugabyteDBStreamingChangeRecordReceiver();
         this.inconsistentSchemaHandler = inconsistentSchemaHandler != null ? inconsistentSchemaHandler : this::errorOnMissingSchema;
         this.signal = new Signal<>(connectorConfig, this);
@@ -145,7 +142,7 @@ public class YugabyteDBEventDispatcher<T extends DataCollectionId> extends Event
                 handled = true;
             }
 
-            // TODO: Add heartbeat event processing here if required.
+            dispatchHeartbeatEvent(changeRecordEmitter.getPartition(), changeRecordEmitter.getOffset());
 
             return handled;
         } catch (Exception e) {
