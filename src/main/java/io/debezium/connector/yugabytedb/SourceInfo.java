@@ -40,6 +40,7 @@ public final class SourceInfo extends BaseSourceInfo {
     public static final String TABLE_ID = "table_id";
     public static final String TABLET_ID = "tablet_id";
     public static final String PARTITION_ID_KEY = "partition_id";
+    public static final String XREPL_ORIGIN_ID = "origin_id";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -55,6 +56,7 @@ public final class SourceInfo extends BaseSourceInfo {
     private String tabletId;
     private Long commitTime;
     private Long recordTime;
+    private int xreplOriginId;
 
     protected SourceInfo(YugabyteDBConnectorConfig connectorConfig) {
         super(connectorConfig);
@@ -79,14 +81,16 @@ public final class SourceInfo extends BaseSourceInfo {
      * @param txId the ID of the transaction that generated the transaction; may be null if this information is not available
      * @param tableId the table that should be included in the source info; may be null
      * @param recordTime Hybrid Time Stamp Time of the statement within the transaction.
+     * @param xreplOriginId replication origin id associated with the transaction
      * @return this instance
      */
     protected SourceInfo update(YBPartition partition, OpId lsn, long commitTime, String txId,
-                                TableId tableId, Long recordTime) {
+                                TableId tableId, Long recordTime, int xreplOriginId) {
         this.lsn = lsn;
         this.commitTime = commitTime;
         this.txId = txId;
         this.recordTime = recordTime;
+        this.xreplOriginId = xreplOriginId;
         this.tableUUID = partition.getTableId();
         this.tabletId = partition.getTabletId();
 
@@ -200,6 +204,10 @@ public final class SourceInfo extends BaseSourceInfo {
         return this.tableUUID;
     }
 
+    protected int xreplOriginId() {
+        return this.xreplOriginId;
+    }
+
     @Override
     public SnapshotRecord snapshot() {
         return super.snapshot();
@@ -228,6 +236,9 @@ public final class SourceInfo extends BaseSourceInfo {
         }
         if (tableName != null) {
             sb.append(", table=").append(tableName);
+        }
+        if (xreplOriginId != 0) {
+            sb.append(", origin_id=").append(xreplOriginId);
         }
         sb.append(']');
         return sb.toString();

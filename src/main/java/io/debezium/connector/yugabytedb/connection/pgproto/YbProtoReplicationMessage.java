@@ -175,6 +175,11 @@ public class YbProtoReplicationMessage implements ReplicationMessage {
                 columnValue);
     }
 
+    @Override
+    public int getXreplOriginId() {
+        return rawMessage.getXreplOriginId();
+    }
+
     public CdcService.CDCSDKSchemaPB getSchema() {
         return this.rawMessage.getSchema();
     }

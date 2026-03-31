@@ -198,6 +198,13 @@ public interface ReplicationMessage {
     }
 
     /**
+     * @return Replication origin id associated with the transaction, or 0 if not set.
+     */
+    default int getXreplOriginId() {
+        return 0;
+    }
+
+    /**
      * A special message type that is used to replace event filtered already at {@link MessageDecoder}.
      * Enables {@link YugabyteDBStreamingChangeEventSource} to advance LSN forward even in case of such messages.
      */
