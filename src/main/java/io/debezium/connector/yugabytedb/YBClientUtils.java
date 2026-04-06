@@ -344,10 +344,19 @@ public class YBClientUtils {
       return false;
     }
 
-    return (cdcStreamInfo.getOptions().get("record_type").equals(CDCRecordType.ALL.name())
-           || cdcStreamInfo.getOptions().get("record_type").equals(CDCRecordType.MODIFIED_COLUMNS_OLD_AND_NEW_IMAGES.name()))
-           || (cdcStreamInfo.getOptions().get("record_type").equals(CDCRecordType.PG_FULL.name())
-           || cdcStreamInfo.getOptions().get("record_type").equals(CDCRecordType.PG_CHANGE_OLD_NEW.name()));
+    String recordType = cdcStreamInfo.getOptions().get("record_type");
+    if (recordType == null) {
+      // If the record_type option is not found, it means that the stream is configured with a slot + publication path.
+      // In this case, we return true to indicate that before image is enabled.
+      LOGGER.info("record_type option not found in stream options, the stream is likely configured"
+          + " via slot + publication path; returning before_image as enabled (true)");
+      return true;
+    }
+
+    return recordType.equals(CDCRecordType.ALL.name())
+           || recordType.equals(CDCRecordType.MODIFIED_COLUMNS_OLD_AND_NEW_IMAGES.name())
+           || recordType.equals(CDCRecordType.PG_FULL.name())
+           || recordType.equals(CDCRecordType.PG_CHANGE_OLD_NEW.name());
   }
 
   /**
