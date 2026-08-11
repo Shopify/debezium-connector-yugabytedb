@@ -379,7 +379,7 @@ public class YugabyteDBConnectorTask
         // the poll the queue
         // and notify.
         final List<DataChangeEvent> records = queue.poll();
-        LOGGER.debug("Got the records from queue: " + records);
+        LOGGER.debug("Got the records from queue: {}", records);
         final List<SourceRecord> sourceRecords = records.stream()
                 .map(DataChangeEvent::getRecord)
                 .collect(Collectors.toList());
