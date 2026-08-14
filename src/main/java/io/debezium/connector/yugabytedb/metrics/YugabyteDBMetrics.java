@@ -62,10 +62,10 @@ public class YugabyteDBMetrics {
     registrationRetryDelay = Duration.ofMillis(connectorConfig.mbeanRegistrationRetryDelayMs());
 
     if (multiPartitionMode) {
-      this.name = metricName(connectorType, Collect.linkMapOf(
+      this.name = metricName(connectorType, withConnectorTag(Collect.linkMapOf(
               "server", connectorName,
               "task", connectorConfig.getTaskId(),
-              "context", contextName));
+              "context", contextName), connectorConfig.getKafkaConnectName()));
     } else {
       this.name = metricName(connectorType, connectorName, contextName);
     }
@@ -91,12 +91,12 @@ public class YugabyteDBMetrics {
     registrationRetryDelay = Duration.ofMillis(connectorConfig.mbeanRegistrationRetryDelayMs());
     
     if (multiPartitionMode) {
-      LOGGER.info("Configuring a metric with connector type {} server {}, task ID {} and context {}",
-                  connectorType, connectorName, taskId, contextName);
-      this.name = metricName(connectorType, Collect.linkMapOf(
+      LOGGER.info("Configuring a metric with connector type {} server {}, task ID {}, context {} and connector {}",
+                  connectorType, connectorName, taskId, contextName, connectorConfig.getKafkaConnectName());
+      this.name = metricName(connectorType, withConnectorTag(Collect.linkMapOf(
           "server", connectorName,
           "task", taskId,
-          "context", contextName));
+          "context", contextName), connectorConfig.getKafkaConnectName()));
     } else {
       this.name = metricName(connectorType, connectorName, contextName);
     }
@@ -169,6 +169,26 @@ public class YugabyteDBMetrics {
 
   protected ObjectName metricName(String connectorType, String connectorName, String contextName) {
       return metricName(connectorType, Collect.linkMapOf("context", contextName, "server", connectorName));
+  }
+
+  /**
+   * Adds the Kafka Connect connector name to the given tag map so that MBeans belonging to different
+   * connectors running in the same worker can be told apart. The Debezium logical name is only the
+   * topic prefix, which every connector reading from the same database shares.
+   * <p>
+   * The tag is appended last so that consumers matching on the existing leading tags keep working,
+   * and is omitted entirely when the connector name is unavailable, which is the case when the
+   * connector runs outside Kafka Connect.
+   *
+   * @param tags the tag map to add the connector tag to
+   * @param connectorName the Kafka Connect connector name, may be null or empty
+   * @return the same tag map, for chaining
+   */
+  protected static Map<String, String> withConnectorTag(Map<String, String> tags, String connectorName) {
+    if (connectorName != null && !connectorName.isEmpty()) {
+      tags.put("connector", connectorName);
+    }
+    return tags;
   }
 
   /**

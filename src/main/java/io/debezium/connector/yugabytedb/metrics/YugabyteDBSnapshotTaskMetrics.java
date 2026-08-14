@@ -30,11 +30,12 @@ public class YugabyteDBSnapshotTaskMetrics extends AbstractYugabyteDBTaskMetrics
                                          String taskId) {
         super(taskContext, "snapshot", changeEventQueueMetrics, partitions,
                 (YBPartition partition) -> new YugabyteDBSnapshotPartitionMetrics(taskContext,
-                        Collect.linkMapOf(
+                        withConnectorTag(Collect.linkMapOf(
                                 "server", taskContext.getConnectorName(),
                                 "task", taskId,
                                 "context", "snapshot",
                                 "partition", partition.getFullPartitionName()),
+                                connectorConfig.getKafkaConnectName()),
                         metadataProvider), connectorConfig, taskId);
     }
 
