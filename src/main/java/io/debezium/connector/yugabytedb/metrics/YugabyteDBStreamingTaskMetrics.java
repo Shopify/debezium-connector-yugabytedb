@@ -32,11 +32,12 @@ public class YugabyteDBStreamingTaskMetrics extends AbstractYugabyteDBTaskMetric
                                           String taskId) {
         super(taskContext, "streaming", changeEventQueueMetrics, partitions,
                 (YBPartition partition) -> new YugabyteDBStreamingPartitionMetrics(taskContext,
-                    Collect.linkMapOf(
+                    withConnectorTag(Collect.linkMapOf(
                         "server", taskContext.getConnectorName(),
                         "task", taskId,
                         "context", "streaming",
                         "partition", partition.getFullPartitionName()),
+                        connectorConfig.getKafkaConnectName()),
                     metadataProvider), connectorConfig, taskId);
         connectionMeter = new ConnectionMeter();
     }

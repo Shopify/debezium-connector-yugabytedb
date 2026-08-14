@@ -617,6 +617,13 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     public static final long DEFAULT_MBEAN_REGISTRATION_RETRY_DELAY_MS = 5_000;
     public static final long DEFAULT_LAST_CALLBACK_TIMEOUT_MS = 3 * 60 * 1000;
 
+    /**
+     * The property Kafka Connect uses to pass a connector's name down to its tasks. Declared here
+     * rather than referenced from {@code org.apache.kafka.connect.runtime.ConnectorConfig} to avoid a
+     * compile dependency on connect-runtime.
+     */
+    private static final String KAFKA_CONNECT_NAME = "name";
+
     @Override
     public JdbcConfiguration getJdbcConfig() {
         return super.getJdbcConfig();
@@ -2051,6 +2058,18 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     @Override
     public String getConnectorName() {
         return Module.name();
+    }
+
+    /**
+     * Returns the name Kafka Connect assigned to this connector instance. Unlike
+     * {@link #getLogicalName()}, which is the shared topic prefix, this uniquely identifies the
+     * connector within a worker and is therefore suitable as a metric tag.
+     *
+     * @return the Kafka Connect connector name, or an empty string when the connector is not run by
+     *         Kafka Connect, for example through the embedded engine
+     */
+    public String getKafkaConnectName() {
+        return getConfig().getString(KAFKA_CONNECT_NAME, "");
     }
 
     public ConnectionFactory getConnectionFactory() {
