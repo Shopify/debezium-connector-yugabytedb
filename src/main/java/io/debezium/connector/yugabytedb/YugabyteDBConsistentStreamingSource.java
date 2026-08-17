@@ -430,6 +430,12 @@ public class YugabyteDBConsistentStreamingSource extends YugabyteDBStreamingChan
                 }
             } else {
                 // DML event
+                // TODO: reverse-replication (xrepl origin id) source-side filtering is NOT applied here yet.
+                // The same fix added to YugabyteDBStreamingChangeEventSource (drop records where
+                // isOriginFiltered(message.getXreplOriginId()) before updateRecordPosition / dispatch /
+                // transaction-count) is ALSO needed in this consistent-streaming path. This path was left
+                // untouched only because its buffering/commit-time ordering differs and needs to be traced
+                // before applying the drop safely (must not advance past a buffered, not-yet-committed record).
                 TableId tableId = null;
                 if (message.getOperation() != ReplicationMessage.Operation.NOOP) {
                     tableId = YugabyteDBSchema.createTableIdWithoutCatalog(

@@ -100,6 +100,9 @@ public class YugabyteDBStreamingChangeEventSource implements
     protected final Map<String, Long> tabletToLastHeartbeatMs = new ConcurrentHashMap<>();
     protected final long heartbeatIntervalMs;
 
+    // Reverse-replication (bidirectional) origin id to drop at the source, or < 0 when disabled.
+    protected final int xreplOriginIdFilter;
+
     protected final Filters filters;
 
     // This timer is used to log the offset map periodically.
@@ -138,6 +141,7 @@ public class YugabyteDBStreamingChangeEventSource implements
         this.queue = queue;
         this.tabletToExplicitCheckpoint = new ConcurrentHashMap<>();
         this.heartbeatIntervalMs = connectorConfig.getHeartbeatInterval().toMillis();
+        this.xreplOriginIdFilter = connectorConfig.xreplOriginIdFilter();
         this.splitTabletsWaitingForCallback = new HashSet<>();
         this.filters = new Filters(connectorConfig);
         this.partitionRanges = new ArrayList<>();
@@ -760,6 +764,12 @@ public class YugabyteDBStreamingChangeEventSource implements
                                     }
                                     // DML event
                                     else {
+                                        if (isOriginFiltered(message.getXreplOriginId())) {
+                                            LOGGER.debug("Dropping reverse-replication record (origin_id={}) for tablet {} at checkpoint {}",
+                                                    message.getXreplOriginId(), tabletId, lsn);
+                                            continue;
+                                        }
+
                                         TableId tableId = null;
                                         if (message.getOperation() != Operation.NOOP) {
                                             if (connectorConfig.isYSQLDbType()) {
@@ -890,6 +900,18 @@ public class YugabyteDBStreamingChangeEventSource implements
         }
 
         return explicitCheckpoint;
+    }
+
+    /**
+     * Whether a record tagged with the given xrepl origin id should be dropped inside the connector
+     * (reverse-replication / bidirectional writes). Filtering these at the source -- rather than
+     * downstream in an SMT -- keeps them from advancing {@code lastRecordCheckpoint} without a
+     * corresponding Kafka acknowledgement, which would otherwise pin the explicit checkpoint (and
+     * the server-side cdc_min_replicated_index) indefinitely on tablets whose traffic is entirely
+     * reverse-replication.
+     */
+    protected boolean isOriginFiltered(int xreplOriginId) {
+        return xreplOriginIdFilter >= 0 && xreplOriginId == xreplOriginIdFilter;
     }
 
     protected void maybeEmitTabletHeartbeat(YBPartition part, YugabyteDBOffsetContext offsetContext) {

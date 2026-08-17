@@ -608,6 +608,7 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     protected static final long DEFAULT_CDC_POLL_INTERVAL_IDLE_MS = 500;
     protected static final int DEFAULT_MAX_CONNECTOR_RETRIES = 5;
     protected static final long DEFAULT_CONNECTOR_RETRY_DELAY_MS = 60000;
+    protected static final int DEFAULT_XREPL_ORIGIN_ID_FILTER = -1;
     protected static final boolean DEFAULT_LIMIT_ONE_POLL_PER_ITERATION = false;
     protected static final boolean DEFAULT_LOG_GET_CHANGES = false;
     protected static final long DEFAULT_NEW_TABLE_POLL_INTERVAL_MS = 5 * 60 * 1000L;
@@ -655,6 +656,15 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withDescription("Internal use only")
             .withValidation(Field::isBoolean)
             .withInvisibleRecommender();
+
+    public static final Field XREPL_ORIGIN_ID_FILTER = Field.create("xrepl.origin.id.filter")
+            .withDisplayName("Origin id to drop at the source")
+            .withType(Type.INT)
+            .withImportance(Importance.LOW)
+            .withDefault(DEFAULT_XREPL_ORIGIN_ID_FILTER)
+            .withValidation(Field::isInteger)
+            .withDescription("If set to a non-negative value, DML records tagged with this xrepl origin id "
+                    + "are dropped inside the connector. A negative value (default) disables the filtering.");
 
     public static final Field HASH_RANGES_LIST = Field.create(TASK_CONFIG_PREFIX + ".hash.ranges.list")
             .withDisplayName("YugabyteDB tablet list with hash ranges")
@@ -1406,6 +1416,10 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
         return getConfig().getInteger(MAX_CONNECTOR_RETRIES);
     }
 
+    public int xreplOriginIdFilter() {
+        return getConfig().getInteger(XREPL_ORIGIN_ID_FILTER);
+    }
+
     public long connectorRetryDelayMs() {
         return getConfig().getLong(CONNECTOR_RETRY_DELAY_MS);
     }
@@ -1602,7 +1616,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     MBEAN_REGISTRATION_RETRY_DELAY_MS,
                     CDC_POLL_INTERVAL_MS,
                     CDC_POLL_INTERVAL_ACTIVE_MS,
-                    CDC_POLL_INTERVAL_IDLE_MS)
+                    CDC_POLL_INTERVAL_IDLE_MS,
+                    XREPL_ORIGIN_ID_FILTER)
             .events(
                     INCLUDE_UNKNOWN_DATATYPES)
             .connector(
