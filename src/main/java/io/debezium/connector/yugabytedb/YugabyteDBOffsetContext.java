@@ -75,7 +75,7 @@ public class YugabyteDBOffsetContext implements OffsetContext {
                this.updateRecordPosition(context.getKey(), streamingStartLsn(), streamingStartLsn(), 0L, null, null, 0L);
             }
         }
-        LOGGER.debug("Populating the tabletsourceinfo with " + this.getTabletSourceInfo());
+        LOGGER.debug("Populating the tabletsourceinfo with {}", this.getTabletSourceInfo());
         this.transactionContext = new YugabyteDBTransactionContext();
         this.incrementalSnapshotContext = new SignalBasedIncrementalSnapshotContext<>();
         this.connectorConfig = config;
@@ -417,7 +417,7 @@ public class YugabyteDBOffsetContext implements OffsetContext {
         @SuppressWarnings("unchecked")
         @Override
         public YugabyteDBOffsetContext load(Map<String, ?> offset) {
-            LOGGER.debug("The offset being loaded in YugabyteDBOffsetContext.. " + offset);
+            LOGGER.debug("The offset being loaded in YugabyteDBOffsetContext.. {}", offset);
 
             return new YugabyteDBOffsetContext(getTabletSourceInfoMap(offset));
         }
