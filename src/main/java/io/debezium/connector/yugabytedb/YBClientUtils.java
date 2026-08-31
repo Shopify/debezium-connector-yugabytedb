@@ -4,10 +4,14 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
@@ -95,20 +99,19 @@ public class YBClientUtils {
       try {
           // Debezium's idiomatic table discovery is "enumerate the catalog, then filter with the
           // configured include-list predicate" (see RelationalSnapshotChangeEventSource /
-          // JdbcConnection#readTableNames). We keep that model, but scope the master ListTables RPC
-          // server-side to this connector's own database (namespace) and to non-system tables
-          // (excludeSystemTables=true). Both are parse-free, always-safe filters that the YBClient
-          // API already exposes; the authoritative client-side filters below are unchanged.
+          // JdbcConnection#readTableNames). We keep that model and its authoritative client-side
+          // filters below, but scope the master ListTables RPC as tightly as the YBClient API
+          // allows so it need not enumerate the entire database.
           //
           // This method runs on Kafka Connect's single-threaded DistributedHerder during
-          // task-config generation. Previously it ran an unscoped, full-cluster enumeration AND
-          // logged a WARN for every non-matching table; multiplied across ~all tables and every
-          // connector on a dense Connect cluster, that starved the herder during rebalances and
-          // drove cluster-wide rebalance storms.
-          ListTablesResponse tablesResp = ybClient.getTablesList(null, true, dbName);
+          // task-config generation. An unscoped, full-database enumeration here (globaldb has
+          // thousands of tables) is expensive enough that, multiplied across every connector on a
+          // dense Connect cluster and every rebalance round, it starves the herder and drives
+          // cluster-wide rebalance storms. See listCandidateTables() for how discovery is scoped.
+          List<MasterDdlOuterClass.ListTablesResponsePB.TableInfo> tableInfos =
+              listCandidateTables(ybClient, connectorConfig, dbName);
 
-          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo :
-              tablesResp.getTableInfoList()) {
+          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo : tableInfos) {
               if (tableInfo.getRelationType() == MasterTypes.RelationType.INDEX_TABLE_RELATION ||
                     tableInfo.getRelationType() == MasterTypes.RelationType.SYSTEM_TABLE_RELATION) {
                   // Ignoring the index and system tables from getting added for streaming.
@@ -190,6 +193,94 @@ public class YBClientUtils {
           throw new DebeziumException(e);
       }
       return tableIds;
+  }
+
+  /**
+   * A plain SQL identifier contains no regex metacharacters, so we can safely push it to the
+   * master as a server-side substring filter. Anything else may be a Debezium regex and must not
+   * be pushed down (see {@link #literalTableNameFilters(String)}).
+   */
+  private static final Pattern LITERAL_IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
+
+  /**
+   * Enumerate the candidate tables from the master, scoped as tightly as the YBClient API allows.
+   *
+   * <p>When every {@code table.include.list} entry ends in a literal table-name segment (the shape
+   * infra-central provisions, e.g. {@code core.returns_us_east}), each such name is pushed to the
+   * master as a server-side substring filter (in addition to the namespace and non-system-table
+   * scoping), so the master returns a handful of tables rather than the whole database. Otherwise
+   * we fall back to enumerating all non-system tables in the connector's database.
+   *
+   * <p>In both cases the caller re-applies the authoritative client-side include/exclude filters,
+   * so this only affects how much work the master and the single-threaded herder do, never which
+   * tables are ultimately streamed.
+   */
+  private static List<MasterDdlOuterClass.ListTablesResponsePB.TableInfo> listCandidateTables(
+          YBClient ybClient, YugabyteDBConnectorConfig connectorConfig, String dbName)
+          throws Exception {
+      Set<String> literalTableNames = literalTableNameFilters(connectorConfig.tableIncludeList());
+
+      if (literalTableNames.isEmpty()) {
+          LOGGER.info("Enumerating all non-system tables in database {} (no literal table names "
+                  + "could be derived from table.include.list)", dbName);
+          return ybClient.getTablesList(null, true, dbName).getTableInfoList();
+      }
+
+      LOGGER.info("Scoping table discovery in database {} to server-side name filter(s): {}",
+              dbName, literalTableNames);
+
+      // A substring name filter can match more than one table, and distinct filters can overlap,
+      // so de-duplicate by table ID while preserving discovery order.
+      Map<String, MasterDdlOuterClass.ListTablesResponsePB.TableInfo> byTableId =
+          new LinkedHashMap<>();
+      for (String tableName : literalTableNames) {
+          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo :
+                  ybClient.getTablesList(tableName, true, dbName).getTableInfoList()) {
+              byTableId.putIfAbsent(tableInfo.getId().toStringUtf8(), tableInfo);
+          }
+      }
+      return new ArrayList<>(byTableId.values());
+  }
+
+  /**
+   * Derive the set of literal table names that can safely be pushed to the master as server-side
+   * substring filters.
+   *
+   * <p>Each {@code table.include.list} entry is a Debezium (anchored) regex of the form
+   * {@code [<catalog>.]<schema>.<table>}. We take the last dot-separated segment as the table-name
+   * pattern and keep it only if it is a pure SQL identifier (no regex metacharacters). Because the
+   * include-list match is anchored, a table accepted by a literal table-name pattern must have that
+   * exact name, so a server-side substring filter on that name is always a safe superset.
+   *
+   * <p>If ANY entry is missing, empty, or non-literal, we return an empty set to signal "fall back
+   * to a full namespace enumeration", which is always correct.
+   *
+   * <p>Package-private for unit testing.
+   */
+  static Set<String> literalTableNameFilters(String tableIncludeList) {
+      if (tableIncludeList == null || tableIncludeList.trim().isEmpty()) {
+          return Collections.emptySet();
+      }
+
+      Set<String> tableNames = new LinkedHashSet<>();
+      for (String rawEntry : tableIncludeList.split(",")) {
+          String entry = rawEntry.trim();
+          if (entry.isEmpty()) {
+              return Collections.emptySet();
+          }
+
+          // The table name is the final dot-separated segment; catalog/schema prefixes are dropped.
+          String[] segments = entry.split("\\.");
+          String tableNamePattern = segments[segments.length - 1];
+
+          if (!LITERAL_IDENTIFIER.matcher(tableNamePattern).matches()) {
+              // A regex (or otherwise non-literal) table name: pushing it down as a substring
+              // filter could silently drop matching tables, so bail out to the safe full scan.
+              return Collections.emptySet();
+          }
+          tableNames.add(tableNamePattern);
+      }
+      return tableNames;
   }
 
   /**
