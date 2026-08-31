@@ -93,9 +93,21 @@ public class YBClientUtils {
     
     Set<String> tableIds = new HashSet<>();
       try {
-          ListTablesResponse tablesResp = ybClient.getTablesList();
+          // Debezium's idiomatic table discovery is "enumerate the catalog, then filter with the
+          // configured include-list predicate" (see RelationalSnapshotChangeEventSource /
+          // JdbcConnection#readTableNames). We keep that model, but scope the master ListTables RPC
+          // server-side to this connector's own database (namespace) and to non-system tables
+          // (excludeSystemTables=true). Both are parse-free, always-safe filters that the YBClient
+          // API already exposes; the authoritative client-side filters below are unchanged.
+          //
+          // This method runs on Kafka Connect's single-threaded DistributedHerder during
+          // task-config generation. Previously it ran an unscoped, full-cluster enumeration AND
+          // logged a WARN for every non-matching table; multiplied across ~all tables and every
+          // connector on a dense Connect cluster, that starved the herder during rebalances and
+          // drove cluster-wide rebalance storms.
+          ListTablesResponse tablesResp = ybClient.getTablesList(null, true, dbName);
 
-          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo : 
+          for (MasterDdlOuterClass.ListTablesResponsePB.TableInfo tableInfo :
               tablesResp.getTableInfoList()) {
               if (tableInfo.getRelationType() == MasterTypes.RelationType.INDEX_TABLE_RELATION ||
                     tableInfo.getRelationType() == MasterTypes.RelationType.SYSTEM_TABLE_RELATION) {
@@ -161,7 +173,12 @@ public class YBClientUtils {
                   tableIds.add(tableInfo.getId().toStringUtf8());
               }
               else {
-                  LOGGER.warn("Filtering out the table {} since it was not in the include list", 
+                  // DEBUG, not WARN, on purpose: enumerate-then-filter means this fires once per
+                  // non-matching table in the database, i.e. O(all_tables) per connector. At WARN,
+                  // multiplied across every connector on a dense Connect cluster and every
+                  // rebalance round, this produced multi-million-line log floods that starved the
+                  // single-threaded herder — the confirmed rebalance-storm amplifier.
+                  LOGGER.debug("Filtering out the table {} since it was not in the include list",
                               tableId);
               }
           }
@@ -174,7 +191,7 @@ public class YBClientUtils {
       }
       return tableIds;
   }
-  
+
   /**
    * Helper function to get the mapped values for the table to tablet IDs. The function returns a
    * list in which each element is a pair like Pair<tableID, tabletId>
