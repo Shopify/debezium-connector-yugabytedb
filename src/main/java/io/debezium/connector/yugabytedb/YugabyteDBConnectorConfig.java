@@ -12,6 +12,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -60,6 +61,7 @@ import io.debezium.relational.RelationalTableFilters;
 import io.debezium.relational.TableId;
 import io.debezium.relational.Tables.TableFilter;
 import io.debezium.util.Clock;
+import io.debezium.util.Collect;
 import io.debezium.util.Metronome;
 import io.debezium.util.Strings;
 
@@ -603,6 +605,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     public static final int DEFAULT_MBEAN_REGISTRATION_RETRIES = 12;
     public static final long DEFAULT_MBEAN_REGISTRATION_RETRY_DELAY_MS = 5_000;
     public static final long DEFAULT_LAST_CALLBACK_TIMEOUT_MS = 3 * 60 * 1000;
+
+    private static final String KAFKA_CONNECT_NAME = "name";
 
     @Override
     public JdbcConfiguration getJdbcConfig() {
@@ -2022,6 +2026,23 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
     @Override
     public String getConnectorName() {
         return Module.name();
+    }
+
+    /**
+     * Returns metric tags identifying this connector instance. {@link #getLogicalName()} is only the
+     * topic prefix, which every connector reading from the same database shares, whereas the name
+     * Kafka Connect assigned to the connector is unique within a worker.
+     *
+     * @return a single {@code connector} tag, or an empty map when the configuration carries no
+     *         {@code name} property
+     */
+    public Map<String, String> getConnectorMetricTags() {
+        return resolveConnectorMetricTags(getConfig());
+    }
+
+    static Map<String, String> resolveConnectorMetricTags(Configuration config) {
+        String connectorName = config.getString(KAFKA_CONNECT_NAME, "");
+        return connectorName.isEmpty() ? Collections.emptyMap() : Collect.linkMapOf("connector", connectorName);
     }
 
     public ConnectionFactory getConnectionFactory() {
