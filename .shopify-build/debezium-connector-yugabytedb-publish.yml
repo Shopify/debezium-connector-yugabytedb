@@ -1,0 +1,51 @@
+# Publishes the Yugabyte gRPC connector jar to the Cloudsmith `jars` repo so that
+# consumers can depend on it as a normal maven artifact. Today the only built copy
+# of this connector lives inside the cdc-core-yugabyte/shopify_debezium builder
+# image, which means nothing outside that image build can resolve it — cdc-core's
+# cdc-dev-cli needs it to assemble its local Yugabyte bundle.
+#
+# Runs only on the release branch: `main` tracks upstream and its commits get
+# upstreamed, so Shopify release plumbing stays off it.
+containers:
+  default:
+    docker: us-docker.pkg.dev/shopify-docker-images/containers/cloud/maven-gradle-sbt-jdk@sha256:cb3a7e87993d1865d6169142b0fb6033445ea7bfea80aaebb401408e28cf43b4
+
+steps:
+  - label: "Publish Connector to Cloudsmith"
+    key: publish-connector
+    if: build.branch == "production-vdz.1.9.5.yb.grpc.2026.1.2.0.1"
+    run:
+      # The checked-in pom stays on dz.1.9.5.yb.grpc.2026.1-SNAPSHOT: it is shared
+      # with upstream, so the release version is set at build time instead of being
+      # committed. Consumers cannot resolve a -SNAPSHOT from Cloudsmith, and a
+      # version that disagrees with its path is rejected outright by Gradle
+      # ("inconsistent module metadata found").
+      #
+      # The commit suffix keeps the coordinate immutable: the branch is long-lived,
+      # so publishing the bare branch version would rewrite the same coordinate
+      # with different bytes on every build. It matches how the other artifacts
+      # cdc-core consumes are versioned (world-protos is 1.0.0-<sha12>), and the
+      # leading dz.1.9.5.yb.grpc.<yb-release> still records which YugabyteDB
+      # server line the connector's gRPC protos were built against.
+      # The plugin coordinate is fully qualified so the build does not silently
+      # move to whatever versions-maven-plugin release Central serves next, the
+      # same reason the container above is pinned by digest.
+      - mvn -B org.codehaus.mojo:versions-maven-plugin:2.22.0:set -DnewVersion=dz.1.9.5.yb.grpc.2026.1.2.0.1-${BUILDKITE_COMMIT:0:12} -DgenerateBackupPoms=false
+      # .shopify-build/Dockerfile already builds this branch with this invocation
+      # in this same image; `install` replaces `package` so that the artifact
+      # lands in /root/.m2/repository for the publish step below.
+      - mvn -B clean install -DskipTests -Ddocker.skip=true
+    timeout: 30m
+    publish:
+      package:
+        repository_name: jars
+        package_type: maven
+        artifacts:
+          - path: /root/.m2/repository
+            patterns:
+              # The build sets createDependencyReducedPom=false, so the published
+              # pom lists org.yb:yb-client, which is served only from Yugabyte's S3
+              # maven repo. The shaded jar already contains it, so consumers must
+              # depend on this artifact non-transitively.
+              - '**/debezium-connector-yugabytedb-*.jar'
+              - '**/debezium-connector-yugabytedb-*.pom'
