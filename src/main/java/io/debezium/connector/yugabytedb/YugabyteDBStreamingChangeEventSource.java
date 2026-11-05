@@ -478,6 +478,9 @@ public class YugabyteDBStreamingChangeEventSource implements
                             continue;
                         }
 
+                        // The pause before the next pass is "active" if any tablet in this pass returned
+                        // records, not just the last one polled.
+                        boolean receivedDataInThisPass = false;
                         for (Pair<String, String> entry : tabletPairList) {
                             final String tabletId = entry.getValue();
                             curTabletId = entry.getValue();
@@ -613,7 +616,7 @@ public class YugabyteDBStreamingChangeEventSource implements
 
                             int recordCount = response.getResp().getCdcSdkProtoRecordsList().size();
                             LOGGER.debug("Processing {} records from getChanges call", recordCount);
-                            receivedDataInLastIteration = (recordCount > 0);
+                            receivedDataInThisPass |= (recordCount > 0);
                             for (CdcService.CDCSDKProtoRecordPB record : response
                                     .getResp()
                                     .getCdcSdkProtoRecordsList()) {
@@ -842,6 +845,7 @@ public class YugabyteDBStreamingChangeEventSource implements
 
                             LOGGER.debug("The final opid for tablet {} is {}", part.getId(), finalOpid);
                         }
+                        receivedDataInLastIteration = receivedDataInThisPass;
                         // Reset the retry count, because if flow reached at this point, it means that the connection
                         // has succeeded
                         retryCount = 0;
