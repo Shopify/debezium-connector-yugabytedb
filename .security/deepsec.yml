@@ -1,0 +1,21 @@
+# deepsec security review of the YugabyteDB Debezium gRPC connector: devx deepsec run
+# Context for the model: .security/deepsec/debezium-connector-yugabytedb.md.
+projects:
+  debezium-connector-yugabytedb:
+    title: "Debezium connector for YugabyteDB (gRPC) security review"
+    matchers: [standards-secrets, standards-supply-chain]
+    priority:
+      - src/main/java/io/debezium/connector/yugabytedb/YBClientUtils.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorConfig.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorTask.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBgRPCConnector.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBStreamingChangeEventSource.java
+      - src/main/java/io/debezium/connector/yugabytedb/metrics/
+      - base_source_image/
+      - Dockerfile
+      - .github/workflows/
+    ignore:
+      - "**/src/test/**"
+      - "**/*.md"
+      - "src/main/proto/**"
+      - "src/main/resources/META-INF/**"
