@@ -1,21 +1,30 @@
-# deepsec security review of the YugabyteDB Debezium gRPC connector: devx deepsec run
-# Context for the model: .security/deepsec/debezium-connector-yugabytedb.md.
+# deepsec security review of the YugabyteDB Debezium gRPC connector.
+# Context for the model: .security/deepsec/debezium-connector-yugabytedb.md. Zone matchers: .security/deepsec/matchers.json.
 projects:
   debezium-connector-yugabytedb:
     title: "Debezium connector for YugabyteDB (gRPC) security review"
     matchers: [standards-secrets, standards-supply-chain]
     priority:
-      - src/main/java/io/debezium/connector/yugabytedb/YBClientUtils.java
       - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorConfig.java
+      - src/main/java/io/debezium/connector/yugabytedb/YBClientUtils.java
+      - src/main/java/io/debezium/connector/yugabytedb/connection/
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTaskConnection.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTablePoller.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBStreamingChangeEventSource.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConsistentStreamingSource.java
       - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorTask.java
       - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBgRPCConnector.java
-      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBStreamingChangeEventSource.java
-      - src/main/java/io/debezium/connector/yugabytedb/metrics/
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBOffsetContext.java
+      - src/main/java/io/debezium/connector/yugabytedb/YugabyteDBSnapshotChangeEventSource.java
+      - src/main/java/io/debezium/connector/yugabytedb/transforms/
+      - src/main/java/io/aiven/
       - base_source_image/
       - Dockerfile
       - .github/workflows/
+      - pom.xml
+      - src/main/java/io/debezium/connector/yugabytedb/metrics/
     ignore:
       - "**/src/test/**"
       - "**/*.md"
-      - "src/main/proto/**"
-      - "src/main/resources/META-INF/**"
+      - "generated-sources/**"
+      - "target/**"
