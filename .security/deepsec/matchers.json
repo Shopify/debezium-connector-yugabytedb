@@ -1,0 +1,262 @@
+[
+  {
+    "version": 1,
+    "slug": "yb-config-credentials-sql",
+    "description": "Connector config and JDBC/YSQL access: password and SSL fields, JDBC config building, the task connection wrapper, the type registry, and the replication slot and publication helpers that build SQL from config values (slot.name, publication.name, table include list). Credential handling, TLS settings and SQL construction. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorConfig.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTaskConnection.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTypeRegistry.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTablePoller.java",
+      "src/main/java/io/debezium/connector/yugabytedb/util/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "config or JDBC source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb;"],
+    "closesSurfaceIds": ["yb-config-credentials", "yb-sql-construction"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-grpc-streaming",
+    "description": "gRPC streaming path: YBClient construction with TLS files, tablet listing for a CDC stream, GetChanges polling per tablet, checkpoint commits, the consistent-ordering merger, the change event source coordinator and factory, and the connector and task lifecycle that splits tablets across tasks. Wrong checkpoints lose or replay changes; TLS options dropped here disable verification. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/YBClientUtils.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBStreamingChangeEventSource.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConsistentStreamingSource.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBConnectorTask.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBgRPCConnector.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBChangeEventSourceCoordinator.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBChangeEventSourceFactory.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBErrorHandler.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTaskContext.java",
+      "src/main/java/io/debezium/connector/yugabytedb/consistent/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "gRPC streaming source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb;"],
+    "closesSurfaceIds": ["yb-grpc-streaming", "yb-tls"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-offsets-checkpoints",
+    "description": "Stream position state: the offset context and source info stored in Kafka Connect offsets, per-tablet partitions, OpId and LSN parsing, WAL position location and transaction tracking. A wrong or mis-keyed position commits a checkpoint for the wrong tablet or stream and loses or replays changes. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBOffsetContext.java",
+      "src/main/java/io/debezium/connector/yugabytedb/SourceInfo.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBSourceInfoStructMaker.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YBPartition.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTransactionContext.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTransactionMonitor.java",
+      "src/main/java/io/debezium/connector/yugabytedb/connection/OpId.java",
+      "src/main/java/io/debezium/connector/yugabytedb/connection/Lsn.java",
+      "src/main/java/io/debezium/connector/yugabytedb/connection/WalPositionLocator.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "offset or checkpoint source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb;"],
+    "closesSurfaceIds": ["yb-offsets-checkpoints"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-snapshot",
+    "description": "Initial snapshot path: the snapshot change event source that streams existing rows per tablet, the snapshotter implementations selected by snapshot.mode, and the SPI types for slot and offset state. Decides which rows are emitted and when a snapshot is marked complete. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBSnapshotChangeEventSource.java",
+      "src/main/java/io/debezium/connector/yugabytedb/snapshot/*.java",
+      "src/main/java/io/debezium/connector/yugabytedb/spi/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "snapshot source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb.snapshot;"],
+    "closesSurfaceIds": ["yb-snapshot"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-connection-decoders",
+    "description": "The connection package: JDBC and replication connections (credentials, SSL mode and socket factory), server info queries, and the message decoders (pgproto protobuf, pgoutput binary, wal2json JSON) plus column value resolvers that parse data received from the server into replication messages. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/connection/**/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "connection or decoder source file"
+      }
+    ],
+    "examples": [
+      "package io.debezium.connector.yugabytedb.connection.pgproto;"
+    ],
+    "closesSurfaceIds": ["yb-connection-decoders"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-record-conversion",
+    "description": "Record conversion: the change record emitter, event dispatcher, value and CQL value converters, schema and table schema builder, type mapping, topic selection, table filters and the CloudEvents converter and record parser. Turns server column values into Kafka Connect keys and values; row data, which may include personal data, flows through here and can reach logs. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBChangeRecordEmitter.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBEventDispatcher.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBEventMetadataProvider.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBValueConverter.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBCQLValueConverter.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBSchema.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YBTableSchemaBuilder.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBType.java",
+      "src/main/java/io/debezium/connector/yugabytedb/YugabyteDBTopicSelector.java",
+      "src/main/java/io/debezium/connector/yugabytedb/converters/*.java",
+      "src/main/java/io/debezium/connector/yugabytedb/data/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "record conversion source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb;"],
+    "closesSurfaceIds": ["yb-record-conversion"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-connector-core",
+    "description": "Catch-all for every production Java file in the connector jar, so files not named by a more specific matcher (filters, logical decoding message handling, helper types, newly added classes) are still reviewed. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": ["src/main/java/**/*.java"],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "connector source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb;"],
+    "closesSurfaceIds": ["yb-connector-core"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-transforms",
+    "description": "Single Message Transforms shipped in the jar: YBExtractNewRecordState, PGCompatible and StriimCompatible (unwrap and reshape change events), and the Aiven ExtractTopic transform that sets the topic name from a record field. Every record configured to use them passes through, and record content decides the destination topic. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/transforms/*.java",
+      "src/main/java/io/aiven/kafka/connect/transforms/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "transform source file"
+      }
+    ],
+    "examples": ["package io.aiven.kafka.connect.transforms;"],
+    "closesSurfaceIds": ["yb-transforms"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-metrics-jmx",
+    "description": "JMX metrics MBeans and the metrics factory for snapshot and streaming, per task and per partition. MBean names and attributes are exported by the JMX Prometheus agent and must not carry credentials or row data. Reviewed whole-file.",
+    "noiseTier": "normal",
+    "filePatterns": [
+      "src/main/java/io/debezium/connector/yugabytedb/metrics/*.java"
+    ],
+    "patterns": [
+      {
+        "source": "^package\\s+[\\w.]+;",
+        "flags": "m",
+        "label": "metrics source file"
+      }
+    ],
+    "examples": ["package io.debezium.connector.yugabytedb.metrics;"],
+    "closesSurfaceIds": ["yb-metrics"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-shipped-resources",
+    "description": "Non-Java inputs built into the jar: META-INF/services files that register the connector, transforms and CloudEvents provider as plugins loaded by Kafka Connect, the build version resource, and the pg_logicaldec.proto schema from which the decoder's protobuf classes are generated at build time. Reviewed whole-file.",
+    "noiseTier": "normal",
+    "filePatterns": ["src/main/resources/**", "src/main/proto/**/*.proto"],
+    "patterns": [
+      {
+        "source": "^\\s*\\S",
+        "flags": "m",
+        "label": "non-empty shipped resource"
+      }
+    ],
+    "examples": ["io.debezium.connector.yugabytedb.YugabyteDBgRPCConnector"],
+    "closesSurfaceIds": ["yb-shipped-resources"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-container-images",
+    "description": "Container image build and runtime config: the base Kafka Connect image Dockerfile (downloads of Kafka, Confluent and Debezium jars and the start script), the connector image Dockerfile (JDBC drivers, JMX agent), the container entrypoint that copies plugins and config at start, the log4j2 config that caps stdout at INFO, and the JMX exporter rules in metrics.yml. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": ["Dockerfile", "base_source_image/**", "metrics.yml"],
+    "patterns": [
+      {
+        "source": "^\\s*\\S",
+        "flags": "m",
+        "label": "non-empty image or runtime config file"
+      }
+    ],
+    "examples": ["FROM eclipse-temurin:21-jre-jammy"],
+    "closesSurfaceIds": ["yb-container-images"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-ci-pipelines",
+    "description": "CI and release pipelines: GitHub Actions workflows (pull request tests, release build that pushes the image and creates a GitHub release with registry and token secrets), the CI prerequisite script, and the Jenkinsfile. Token permissions, secrets exposure to pull requests and unpinned actions. Reviewed whole-file.",
+    "noiseTier": "noisy",
+    "filePatterns": [".github/**", "Jenkinsfile"],
+    "patterns": [
+      {
+        "source": "^\\s*\\S",
+        "flags": "m",
+        "label": "non-empty CI file"
+      }
+    ],
+    "examples": ["permissions: write-all"],
+    "closesSurfaceIds": ["yb-ci-pipelines"]
+  },
+  {
+    "version": 1,
+    "slug": "yb-maven-build",
+    "description": "Maven build: dependency versions bundled into the shaded connector jar, shade plugin relocations, repositories, the protoc plugin, the docker-maven-plugin image build, and the release plugin. Decides which third-party code ships in the jar. Reviewed whole-file.",
+    "noiseTier": "normal",
+    "filePatterns": ["pom.xml"],
+    "patterns": [
+      {
+        "source": "^\\s*\\S",
+        "flags": "m",
+        "label": "non-empty Maven build file"
+      }
+    ],
+    "examples": ["<artifactId>maven-shade-plugin</artifactId>"],
+    "closesSurfaceIds": ["yb-maven-build"]
+  }
+]
