@@ -275,6 +275,164 @@ public class TaskAutoscalePolicyTest {
         assertEquals(3, last.apply.taskCount, "scale-up fires at minute 6 after its own cooldown, not 5 min after the re-place");
     }
 
+    private static TaskAutoscalePolicy backlogPolicy() {
+        // 8 tablets per task, target 100 ops/s, lag after 60 s of rate; up after 2 evaluations or a 30 min
+        // cooldown, but a backlog only waits 1 min and is sized to clear within 600 s.
+        return new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, 30 * MIN, 60 * MIN, 1.0, MIN, 600));
+    }
+
+    @Test
+    public void aGrowingBacklogWaitsForTheLagCooldownThenIsSizedToClear() {
+        // At least 2 tasks; 800,000 ops behind and still growing slowly, with almost no new writes.
+        TaskAutoscalePolicy p = new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(2, 16, 100, 8, 60, 2, 3, 30 * MIN, 60 * MIN, 1.0, MIN, 600));
+        assertEquals(2, p.evaluate(sample(8, 100_000, 0), sample(8, 100_080, 0), MIN, 0).apply.taskCount);
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(8, 100_080, 0), sample(8, 100_120, 0), MIN / 2, MIN / 2);
+        assertTrue(e.lagging);
+        assertNull(e.apply, "within the 1 min lag cooldown");
+        e = p.evaluate(sample(8, 100_120, 0), sample(8, 100_140, 0), MIN / 2, MIN);
+        assertTrue(e.lagging);
+        assertEquals(4, e.apply.taskCount, "(5 + 801,120 / 600) / 100 = 14 to clear the backlog, capped at double the 2 running");
+    }
+
+    @Test
+    public void aBacklogThatClearsTooSlowlyAddsTasks() {
+        TaskAutoscalePolicy p = backlogPolicy();
+        assertEquals(1, p.evaluate(sample(8, 100_000, 0), sample(8, 100_000, 0), MIN, 0).apply.taskCount); // after an outage
+        // No new writes; the backlog (800,000 ops) shrinks by 80 ops/s: 10,000 s to clear, more than 600 s.
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(8, 100_000, 0), sample(8, 100_000, 600), MIN, MIN);
+        assertTrue(e.lagging, "catching up");
+        assertEquals(2, e.apply.taskCount, "(0 + 795,200 / 600) / 100 = 14, but at most double the current count");
+    }
+
+    @Test
+    public void aBacklogThatClearsInTimeAddsNothing() {
+        TaskAutoscalePolicy p = backlogPolicy();
+        assertEquals(1, p.evaluate(sample(8, 10_000, 0), sample(8, 10_000, 0), MIN, 0).apply.taskCount);
+        // Still 8,000 ops behind (above the 6,000 that counts as large), but it shrank by 1,200 ops/s:
+        // about 7 s to clear, well within 600 s.
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(8, 10_000, 0), sample(8, 10_000, 9000), MIN, MIN);
+        assertFalse(e.lagging);
+        assertNull(e.apply);
+    }
+
+    @Test
+    public void aBacklogIsSizedByWhatTheTasksActuallyRead() {
+        // 16 tablets, 1 per task at most 16; the target claims 1,000 ops/s per task.
+        TaskAutoscalePolicy p = new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(4, 16, 1000, 16, 180, 2, 3, 30 * MIN, 60 * MIN, 1.0, 5 * MIN, 600));
+        assertEquals(4, p.evaluate(sample(16, 0, 0), sample(16, 0, 0), MIN, 0).apply.taskCount);
+        // 3,200 ops/s written (200 per tablet), but 4 tasks read only 1,600 (100 per tablet): 400 per task, not 1,000.
+        long head = 0, read = 0, t = 0;
+        TaskAutoscalePolicy.Evaluation e = null;
+        for (int i = 1; i <= 12; i++) {
+            List<TaskAutoscalePolicy.TabletSample> prev = sample(16, head, read);
+            head += 12_000; read += 6000; t += MIN;
+            e = p.evaluate(prev, sample(16, head, read), MIN, t);
+            if (e.apply != null) {
+                break;
+            }
+        }
+        assertNotNull(e.apply);
+        assertTrue(e.lagging);
+        assertEquals(8, e.apply.taskCount, "the measured 400 ops/s per task calls for more than double; capped at 8");
+    }
+
+    @Test
+    public void aStuckCheckpointOnIdleTabletsIsNotLagWithCatchUpOn() {
+        TaskAutoscalePolicy p = backlogPolicy();
+        assertEquals(6, p.evaluate(sample(8, 0, 0), sample(8, 4500, 0), MIN, 0).apply.taskCount); // 600 ops/s
+        // Idle from now on; the checkpoint stays where it was, 36,000 ops behind, so the backlog is flat.
+        TaskAutoscalePolicy.Evaluation e = null;
+        for (int m = 1; m <= 70 && (e == null || e.apply == null); m++) {
+            e = p.evaluate(sample(8, 4500, 0), sample(8, 4500, 0), MIN, m * MIN);
+            assertFalse(e.lagging, "minute " + m);
+        }
+        assertEquals(1, e.apply.taskCount, "scales down once the down cooldown has passed");
+    }
+
+    private static List<TaskAutoscalePolicy.TabletSample> oneHotTablet(long hotIndex, long others) {
+        List<TaskAutoscalePolicy.TabletSample> s = new ArrayList<>();
+        s.add(new TaskAutoscalePolicy.TabletSample("t00", hotIndex, 0));
+        for (int i = 1; i < 8; i++) {
+            s.add(new TaskAutoscalePolicy.TabletSample(String.format("t%02d", i), others, others));
+        }
+        return s;
+    }
+
+    @Test
+    public void aBacklogOnFewerTabletsThanTasksAddsOneTaskPerScaleUpCooldown() {
+        TaskAutoscalePolicy p = new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(2, 16, 100, 8, 60, 2, 3, 30 * MIN, 60 * MIN, 1.0, MIN, 600));
+        assertEquals(2, p.evaluate(oneHotTablet(300_000, 0), oneHotTablet(300_000, 0), MIN, 0).apply.taskCount);
+        // Only t00 is behind (and slowly growing); the other tablets are read as fast as they are written.
+        long hot = 300_000, other = 0, t = 0;
+        TaskAutoscalePolicy.Evaluation e = null;
+        List<Integer> applied = new ArrayList<>();
+        List<Long> at = new ArrayList<>();
+        for (int i = 1; i <= 140; i++) {
+            List<TaskAutoscalePolicy.TabletSample> prev = oneHotTablet(hot, other);
+            hot += 30; other += 30; t += MIN / 2;
+            e = p.evaluate(prev, oneHotTablet(hot, other), MIN / 2, t);
+            assertTrue(e.lagging);
+            if (e.apply != null) {
+                applied.add(e.apply.taskCount);
+                at.add(t / MIN);
+            }
+        }
+        // Sizing would say 6 within a minute, but a backlog on one tablet can only be read by one task:
+        // no backlog-sized step, and one task per 30 min scale-up cooldown, not per 1 min lag cooldown.
+        assertEquals(List.of(3, 4), applied);
+        assertEquals(List.of(30L, 60L), at);
+    }
+
+
+    @Test
+    public void aSplitWhileBehindAddsOneTaskWithinTheLagCooldown() {
+        TaskAutoscalePolicy p = new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(2, 16, 100, 8, 60, 2, 3, 30 * MIN, 60 * MIN, 1.0, MIN, 600));
+        assertEquals(2, p.evaluate(sample(8, 100_000, 0), sample(8, 100_080, 0), MIN, 0).apply.taskCount);
+        // A ninth tablet appears while 800,000 ops behind; the set is stable on the next sample.
+        assertNull(p.evaluate(sample(8, 100_080, 0), sample(9, 100_100, 0), MIN / 3, MIN / 3).apply);
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(9, 100_100, 0), sample(9, 100_120, 0), MIN / 3, 2 * MIN / 3);
+        assertTrue(e.lagging);
+        assertEquals(3, e.apply.taskCount, "the split re-places at once, but the backlog-sized step (4) waits for the lag cooldown");
+    }
+
+    private static List<TaskAutoscalePolicy.TabletSample> eightOfTenBehind(long index) {
+        List<TaskAutoscalePolicy.TabletSample> s = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            s.add(new TaskAutoscalePolicy.TabletSample(String.format("t%02d", i), index, i < 8 ? 0 : index));
+        }
+        return s;
+    }
+
+    @Test
+    public void aSizedStepGoesAtMostToTheTabletsHoldingTheBacklog() {
+        TaskAutoscalePolicy p = new TaskAutoscalePolicy(new TaskAutoscalePolicy.Settings(4, 16, 100, 8, 60, 2, 3, 30 * MIN, 60 * MIN, 1.0, MIN, 600));
+        assertEquals(4, p.evaluate(eightOfTenBehind(100_000), eightOfTenBehind(100_080), MIN, 0).apply.taskCount);
+        p.evaluate(eightOfTenBehind(100_080), eightOfTenBehind(100_120), MIN / 2, MIN / 2);
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(eightOfTenBehind(100_120), eightOfTenBehind(100_140), MIN / 2, MIN);
+        assertTrue(e.lagging);
+        assertEquals(7, e.apply.taskCount, "sizing says 14 (8 at double), but 7 tablets hold 80% of the backlog");
+    }
+
+    @Test
+    public void aResumedPolicyMeasuresTheBacklogFromItsOwnSamples() {
+        TaskAutoscalePolicy p = backlogPolicy();
+        assertEquals(1, p.evaluate(sample(8, 0, 0), sample(8, 60, 60), MIN, 0).apply.taskCount);
+        p.evaluate(sample(8, 60, 60), sample(8, 120, 120), MIN, MIN);
+        // Stopped for 4 minutes while writes went on: 8 × 930 ops behind on resume, above the 6,000 that counts as large.
+        p.resumed(5 * MIN);
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(8, 1120, 120), sample(8, 1130, 200), MIN, 6 * MIN);
+        assertFalse(e.lagging, "the backlog built up while stopped is not growth");
+        assertNull(e.apply);
+    }
+
+    @Test
+    public void settingsCompareByValue() {
+        assertEquals(new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600),
+                new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600));
+        assertNotEquals(new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600),
+                new TaskAutoscalePolicy.Settings(1, 16, 200, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600));
+    }
+
     @Test
     public void weightedGroupingSpreadsHotTablets() {
         List<HashPartition> parts = new ArrayList<>();

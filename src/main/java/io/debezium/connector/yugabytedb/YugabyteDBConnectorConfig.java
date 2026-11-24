@@ -1156,6 +1156,17 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
             .withDescription("When scaling down, the smaller task count must carry the peak rate of the whole low stretch "
                     + "at this percentage of the target, so a rate near a task boundary does not flip the count back and forth.");
 
+    public static final Field TASKS_AUTOSCALE_LAG_COOLDOWN_MS = Field.create("tasks.autoscale.lag.cooldown.ms")
+            .withType(Type.LONG).withImportance(Importance.LOW).withDefault(5 * 60_000L).withValidation(Field::isNonNegativeLong)
+            .withDescription("Minimum time since the last change before a backlog (growing, or shrinking too slowly) adds tasks. "
+                    + "Shorter than the scale-up cooldown, but longer than a restart and its catch-up take (a minute or two), "
+                    + "or each change undoes the progress of the last.");
+
+    public static final Field TASKS_AUTOSCALE_CATCH_UP_SECONDS = Field.create("tasks.autoscale.catch.up.seconds")
+            .withType(Type.LONG).withImportance(Importance.LOW).withDefault(900L).withValidation(Field::isPositiveLong)
+            .withDescription("When behind, tasks are sized to carry the write rate plus clearing the backlog within this many "
+                    + "seconds, and a shrinking backlog that would take longer to clear also adds tasks.");
+
     public static final Field LOG_GET_CHANGES = Field.create("log.get.changes")
             .withDisplayName("Whether to log GetChanges requests")
             .withImportance(Importance.LOW)
@@ -1720,6 +1731,8 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
                     TASKS_AUTOSCALE_SCALE_UP_COOLDOWN_MS,
                     TASKS_AUTOSCALE_SCALE_DOWN_COOLDOWN_MS,
                     TASKS_AUTOSCALE_SCALE_DOWN_HEADROOM,
+                    TASKS_AUTOSCALE_LAG_COOLDOWN_MS,
+                    TASKS_AUTOSCALE_CATCH_UP_SECONDS,
                     LOG_GET_CHANGES,
                     LOG_GET_CHANGES_INTERVAL_MS,
                     LOG_COMMIT_OFFSET_INTERVAL_MS,

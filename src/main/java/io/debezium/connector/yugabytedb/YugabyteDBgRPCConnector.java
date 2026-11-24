@@ -156,7 +156,9 @@ public class YugabyteDBgRPCConnector extends RelationalBaseSourceConnector {
                 config.getInteger(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_SCALE_DOWN_EVALUATIONS),
                 config.getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_SCALE_UP_COOLDOWN_MS),
                 config.getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_SCALE_DOWN_COOLDOWN_MS),
-                config.getInteger(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_SCALE_DOWN_HEADROOM) / 100.0);
+                config.getInteger(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_SCALE_DOWN_HEADROOM) / 100.0,
+                config.getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_LAG_COOLDOWN_MS),
+                config.getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_CATCH_UP_SECONDS));
         autoscaler = new TaskAutoscaler(config.getString("name", yugabyteDBConnectorConfig.getLogicalName()),
                 yugabyteDBConnectorConfig, context, new ArrayList<>(tableIds), settings,
                 config.getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_INTERVAL_MS),

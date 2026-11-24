@@ -14,6 +14,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -53,6 +55,28 @@ public class TaskAutoscaler extends Thread {
     private final CountDownLatch initialized = new CountDownLatch(1);
     private final CountDownLatch shutdown = new CountDownLatch(1);
     private static final int STARTUP_ATTEMPTS = 6;
+    // Long enough for a restart or a short pause; short enough that a connector returning from another worker,
+    // where it may have rescaled, rebuilds from current rates instead of resuming an old plan.
+    private static final long RETAIN_NANOS = TimeUnit.MINUTES.toNanos(5);
+    // A connector instance restarted on the same worker (REST restart, pause and resume, a rebalance that keeps
+    // it here) resumes the previous instance's plan, so its task configs come out unchanged and Kafka Connect
+    // doesn't restart the tasks. On another worker the plan is rebuilt from samples.
+    private static final Map<String, Retained> RETAINED = new ConcurrentHashMap<>();
+
+    private static final class Retained {
+        final TaskAutoscalePolicy.Settings settings;
+        final String source;
+        final TaskAutoscalePolicy policy;
+        final TaskAutoscalePolicy.Plan plan;
+        final long storedAtNanos = System.nanoTime();
+
+        Retained(TaskAutoscalePolicy.Settings settings, String source, TaskAutoscalePolicy policy, TaskAutoscalePolicy.Plan plan) {
+            this.settings = settings;
+            this.source = source;
+            this.policy = policy;
+            this.plan = plan;
+        }
+    }
 
     private volatile TaskAutoscalePolicy.Plan plan;
     private volatile TaskAutoscalePolicy.Plan consumed;
@@ -62,6 +86,9 @@ public class TaskAutoscaler extends Thread {
     private int attemptsWithoutPlan;
 
     private final String connectorName;
+    private final TaskAutoscalePolicy.Settings settings;
+    // The stream and its tables: a resumed policy's backlog and rate history only make sense for the same source.
+    private final String source;
 
     public TaskAutoscaler(String connectorName, YugabyteDBConnectorConfig config, ConnectorContext context, List<String> tableIds,
                           TaskAutoscalePolicy.Settings settings, long intervalMs, long startupSampleMs) {
@@ -71,7 +98,19 @@ public class TaskAutoscaler extends Thread {
         this.config = config;
         this.context = context;
         this.tableIds = new ArrayList<>(tableIds);
-        this.policy = new TaskAutoscalePolicy(settings);
+        this.settings = settings;
+        this.source = config.streamId() + "|" + String.join(",", new TreeSet<>(tableIds));
+        Retained r = RETAINED.remove(connectorName);
+        if (r != null && r.settings.equals(settings) && r.source.equals(source) && System.nanoTime() - r.storedAtNanos < RETAIN_NANOS) {
+            this.policy = r.policy;
+            this.policy.resumed(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+            this.plan = r.plan;
+            initialized.countDown();
+            LOGGER.info("Task autoscaler [{}]: resuming the previous instance's plan, {}", connectorName, r.plan);
+        }
+        else {
+            this.policy = new TaskAutoscalePolicy(settings);
+        }
         this.intervalMs = intervalMs;
         this.startupSampleMs = startupSampleMs;
     }
@@ -136,7 +175,7 @@ public class TaskAutoscaler extends Thread {
                     if (previous != null) {
                         TaskAutoscalePolicy.Evaluation e = policy.evaluate(previous, latest, now - previousAt, now);
                         LOGGER.info("Task autoscaler [{}]: desired {} task(s), {} ops/s, backlog {} ops{}; current {}",
-                                connectorName, e.desiredTasks, Math.round(e.opsPerSecond), e.backlogOps, e.lagging ? " (lagging)" : "",
+                                connectorName, e.desiredTasks, Math.round(e.opsPerSecond), e.backlogOps, e.lagging ? " (behind)" : "",
                                 policy.current());
                         if (e.apply != null) {
                             plan = e.apply;
@@ -173,6 +212,9 @@ public class TaskAutoscaler extends Thread {
         finally {
             if (plan == null && shutdown.getCount() > 0) {
                 markUnavailable("stopped");
+            }
+            if (shutdown.getCount() == 0 && plan != null && plan == policy.current()) {
+                RETAINED.put(connectorName, new Retained(settings, source, policy, plan));
             }
             initialized.countDown();
         }
