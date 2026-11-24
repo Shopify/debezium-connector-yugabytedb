@@ -111,15 +111,13 @@ public class TaskAutoscaler extends Thread {
         shutdown.countDown();
     }
 
+    // The tasks already run the count taskConfigs uses without a plan, so nothing is reconfigured.
     private void markUnavailable(String why) {
         if (unavailable) {
             return;
         }
         unavailable = true;
-        LOGGER.warn("Task autoscaler [{}]: {}; running tasks.max tasks as without autoscaling", connectorName, why);
-        if (shutdown.getCount() > 0) {
-            context.requestTaskReconfiguration();
-        }
+        LOGGER.warn("Task autoscaler [{}]: {}; keeping the tablet cap's minimum task count until a plan arrives", connectorName, why);
     }
 
     @Override

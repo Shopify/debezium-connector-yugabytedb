@@ -260,10 +260,12 @@ public class YugabyteDBgRPCConnector extends RelationalBaseSourceConnector {
         if (autoscaler != null) {
             autoscaler.setTableIds(tableIds);
         }
-        // An autoscaler that can't sample falls back to tasks.max in hash order, as without autoscaling.
+        // An autoscaler that can't sample keeps the count it runs before its first plan (tablets ÷ cap, at least the
+        // minimum) rather than tasks.max: tasks.max is a ceiling that can sit well above what the connector needs, and
+        // every connector restarting during the same outage would jump to its ceiling at once.
         TaskAutoscalePolicy.Plan plan = autoscaler == null || autoscaler.unavailable() ? null
                 : autoscaler.plan(2 * yugabyteDBConnectorConfig.getConfig().getLong(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_STARTUP_SAMPLE_MS));
-        if (autoscaler != null && !autoscaler.unavailable()) {
+        if (autoscaler != null) {
             long tablets = this.hashRanges.stream().map(HashPartition::getTabletId).distinct().count();
             numGroups = autoscaleTaskCount(tablets, autoscaleMaxTabletsPerTask, numGroups,
                     yugabyteDBConnectorConfig.getConfig().getInteger(YugabyteDBConnectorConfig.TASKS_AUTOSCALE_MIN),
