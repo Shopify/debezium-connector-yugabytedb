@@ -2074,6 +2074,20 @@ public class YugabyteDBConnectorConfig extends RelationalDatabaseConnectorConfig
         return connectorName.isEmpty() ? Collections.emptyMap() : Collect.linkMapOf("connector", connectorName);
     }
 
+    /**
+     * Returns the name this connector instance logs under: the name Kafka Connect assigned to the
+     * connector, or {@link #getLogicalName()} when the configuration carries no {@code name}
+     * property. The logical name alone cannot tell two connectors on the same database apart.
+     */
+    public String getLoggingName() {
+        return resolveLoggingName(getConfig(), getLogicalName());
+    }
+
+    static String resolveLoggingName(Configuration config, String logicalName) {
+        String connectorName = config.getString(KAFKA_CONNECT_NAME, "");
+        return connectorName.isEmpty() ? logicalName : connectorName;
+    }
+
     public ConnectionFactory getConnectionFactory() {
         String hostName = getJdbcConfig().getHostname();
         return hostName.contains(":")

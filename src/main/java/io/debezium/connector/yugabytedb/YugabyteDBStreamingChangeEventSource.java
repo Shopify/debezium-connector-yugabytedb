@@ -458,6 +458,7 @@ public class YugabyteDBStreamingChangeEventSource implements
             boolean receivedDataInLastIteration = true;
 
             String curTabletId = "";
+            String curTableId = "";
             while (context.isRunning() && retryCount <= connectorConfig.maxConnectorRetries()) {
                 try {
                     while (context.isRunning() && (offsetContext.getStreamingStoppingLsn() == null ||
@@ -481,6 +482,7 @@ public class YugabyteDBStreamingChangeEventSource implements
                         for (Pair<String, String> entry : tabletPairList) {
                             final String tabletId = entry.getValue();
                             curTabletId = entry.getValue();
+                            curTableId = entry.getKey();
                             YBPartition part = new YBPartition(entry.getKey() /* tableId */, tabletId, false /* colocated */);
 
                             // Give every tablet its chance to beat before anything can skip it. A tablet
@@ -858,13 +860,14 @@ public class YugabyteDBStreamingChangeEventSource implements
                     ++retryCount;
                     // If the retry limit is exceeded, log an error with a description and throw the exception.
                     if (retryCount > connectorConfig.maxConnectorRetries()) {
-                        LOGGER.error("Too many errors while trying to get the changes from server for tablet: {}. All {} retries failed.", curTabletId, connectorConfig.maxConnectorRetries());
+                        LOGGER.error("Too many errors while trying to get the changes from server for tablet: {} of table {}. All {} retries failed.",
+                                curTabletId, tableNameForLogging(tableIdToTable, curTableId), connectorConfig.maxConnectorRetries());
                         throw e;
                     }
 
                     // If there are retries left, perform them after the specified delay.
-                    LOGGER.warn("Error while trying to get the changes from the server for tablet {}; will attempt retry {} of {} after {} milli-seconds. Exception: {}",
-                            curTabletId, retryCount, connectorConfig.maxConnectorRetries(), connectorConfig.connectorRetryDelayMs(), e);
+                    LOGGER.warn("Error while trying to get the changes from the server for tablet {} of table {}; will attempt retry {} of {} after {} milli-seconds. Exception: {}",
+                            curTabletId, tableNameForLogging(tableIdToTable, curTableId), retryCount, connectorConfig.maxConnectorRetries(), connectorConfig.connectorRetryDelayMs(), e);
 
                     try {
                         final Metronome retryMetronome = Metronome.parker(Duration.ofMillis(connectorConfig.connectorRetryDelayMs()), Clock.SYSTEM);
@@ -942,6 +945,15 @@ public class YugabyteDBStreamingChangeEventSource implements
         }
 
         return explicitCheckpoint;
+    }
+
+    /**
+     * The name of the table a tablet belongs to, for log lines that would otherwise only carry the
+     * tablet id. Falls back to the table id when the table is not known.
+     */
+    static String tableNameForLogging(Map<String, YBTable> tableIdToTable, String tableId) {
+        YBTable table = tableIdToTable.get(tableId);
+        return table != null ? table.getName() : tableId;
     }
 
     protected void maybeEmitTabletHeartbeat(YBPartition part, YugabyteDBOffsetContext offsetContext) {

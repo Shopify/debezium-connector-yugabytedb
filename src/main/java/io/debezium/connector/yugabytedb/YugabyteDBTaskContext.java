@@ -16,8 +16,10 @@ import io.debezium.annotation.ThreadSafe;
 import io.debezium.connector.common.CdcSourceTaskContext;
 import io.debezium.connector.yugabytedb.connection.ReplicationConnection;
 import io.debezium.connector.yugabytedb.connection.YugabyteDBConnection;
+import io.debezium.pipeline.spi.Partition;
 import io.debezium.relational.TableId;
 import io.debezium.schema.TopicSelector;
+import io.debezium.util.LoggingContext;
 
 /**
  * The context of a {@link YugabyteDBConnectorTask}. This deals with most of the brunt of reading
@@ -38,6 +40,8 @@ public class YugabyteDBTaskContext extends CdcSourceTaskContext {
 
     private final boolean enableExplicitCheckpointing;
 
+    private final String loggingName;
+
     protected YugabyteDBTaskContext(YugabyteDBConnectorConfig config, YugabyteDBSchema schema,
                                     TopicSelector<TableId> topicSelector, String taskId,
                                     boolean sendBeforeImage, boolean enableExplicitCheckpointing) {
@@ -48,6 +52,23 @@ public class YugabyteDBTaskContext extends CdcSourceTaskContext {
         this.schema = schema;
         this.sendBeforeImage = sendBeforeImage;
         this.enableExplicitCheckpointing = enableExplicitCheckpointing;
+        this.loggingName = config.getLoggingName();
+    }
+
+    /**
+     * Logs under the name Kafka Connect gave the connector. The parent class would use the logical
+     * name, which is only the topic prefix and is shared by every connector reading from the same
+     * database, so a log line could not be traced back to its connector. Metrics are not affected:
+     * {@link #getConnectorName()} still returns the logical name.
+     */
+    @Override
+    public LoggingContext.PreviousContext configureLoggingContext(String contextName) {
+        return LoggingContext.forConnector(getConnectorType(), loggingName, contextName);
+    }
+
+    @Override
+    public LoggingContext.PreviousContext configureLoggingContext(String contextName, Partition partition) {
+        return LoggingContext.forConnector(getConnectorType(), loggingName, getTaskId(), contextName, partition);
     }
 
     protected TopicSelector<TableId> topicSelector() {
