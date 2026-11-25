@@ -1031,6 +1031,34 @@ public class YugabyteDBStreamingChangeEventSource implements
         return explicitCheckpoint;
     }
 
+    /**
+     * The offset a tablet's heartbeat commits. Once every record from the tablet is committed, the poll loop advances
+     * the explicit checkpoint to the response's position and safe time; committing that instead of the last record's
+     * position lets an idle tablet's committed offset move forward, which a reader of the offsets (a cutover deciding
+     * whether a connector is past a point in time) otherwise can't tell from a stuck one.
+     */
+    protected Map<String, ?> heartbeatOffset(YBPartition part, YugabyteDBOffsetContext offsetContext) {
+        Map<String, ?> lastRecord = offsetContext.getOffset(part);
+        if (!taskContext.shouldEnableExplicitCheckpointing()) {
+            return lastRecord;
+        }
+
+        CdcSdkCheckpoint explicitCheckpoint = tabletToExplicitCheckpoint.get(part.getId());
+        SourceInfo sourceInfo = offsetContext.getSourceInfo(part);
+        if (explicitCheckpoint == null || sourceInfo == null) {
+            return lastRecord;
+        }
+
+        OpId lastRecordCheckpoint = sourceInfo.lastRecordCheckpoint();
+        OpId lsn = sourceInfo.lsn();
+        boolean nothingInFlight = lastRecordCheckpoint == null || lastRecordCheckpoint.isLesserThanOrEqualTo(explicitCheckpoint);
+        if (!nothingInFlight || (lsn != null && !lsn.isLesserThanOrEqualTo(explicitCheckpoint))) {
+            return lastRecord;
+        }
+
+        return offsetContext.getOffset(part, OpId.from(explicitCheckpoint));
+    }
+
     protected void maybeEmitTabletHeartbeat(YBPartition part, YugabyteDBOffsetContext offsetContext) {
         if (!dispatcher.heartbeatsEnabled()) {
             return;
@@ -1041,7 +1069,7 @@ public class YugabyteDBStreamingChangeEventSource implements
             return;
         }
         try {
-            dispatcher.dispatchHeartbeatEvent(part, offsetContext.getOffset(part));
+            dispatcher.dispatchHeartbeatEvent(part, heartbeatOffset(part, offsetContext));
             tabletToLastHeartbeatMs.put(part.getId(), currentTimeMs);
         }
         catch (InterruptedException e) {
