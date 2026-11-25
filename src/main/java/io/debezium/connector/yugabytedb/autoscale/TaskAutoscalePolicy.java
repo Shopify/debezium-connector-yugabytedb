@@ -12,6 +12,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -95,6 +96,26 @@ public class TaskAutoscalePolicy {
             this.lagCooldownMs = catchUpSeconds > 0 ? lagCooldownMs : scaleUpCooldownMs;
             this.catchUpSeconds = catchUpSeconds > 0 ? catchUpSeconds : Double.POSITIVE_INFINITY;
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof Settings)) {
+                return false;
+            }
+            Settings s = (Settings) o;
+            return minTasks == s.minTasks && maxTasks == s.maxTasks && targetOpsPerTask == s.targetOpsPerTask
+                    && maxTabletsPerTask == s.maxTabletsPerTask && lagSeconds == s.lagSeconds
+                    && scaleUpEvaluations == s.scaleUpEvaluations && scaleDownEvaluations == s.scaleDownEvaluations
+                    && scaleUpCooldownMs == s.scaleUpCooldownMs && scaleDownCooldownMs == s.scaleDownCooldownMs
+                    && scaleDownHeadroom == s.scaleDownHeadroom && lagCooldownMs == s.lagCooldownMs
+                    && catchUpSeconds == s.catchUpSeconds;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(minTasks, maxTasks, targetOpsPerTask, maxTabletsPerTask, lagSeconds, scaleUpEvaluations,
+                    scaleDownEvaluations, scaleUpCooldownMs, scaleDownCooldownMs, scaleDownHeadroom, lagCooldownMs, catchUpSeconds);
+        }
     }
 
     /** The outcome of one evaluation: the plan to apply, or null to keep the current one. */
@@ -135,6 +156,17 @@ public class TaskAutoscalePolicy {
 
     public Plan current() {
         return current;
+    }
+
+    /**
+     * Called when a new connector instance takes over this policy: growth, drain and read rates are measured
+     * from the new instance's samples only, and the tasks may have restarted. The plan and cooldowns stay.
+     */
+    public void resumed(long nowMs) {
+        previousBacklog = Long.MAX_VALUE;
+        recentBacklog.clear();
+        recentReadRates.clear();
+        lastRestartMs = nowMs;
     }
 
     /**

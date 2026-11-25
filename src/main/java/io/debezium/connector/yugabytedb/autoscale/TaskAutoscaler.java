@@ -14,6 +14,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -53,6 +55,31 @@ public class TaskAutoscaler extends Thread {
     private final CountDownLatch initialized = new CountDownLatch(1);
     private final CountDownLatch shutdown = new CountDownLatch(1);
     private static final int STARTUP_ATTEMPTS = 6;
+    // Long enough for a restart or a short pause; short enough that a connector returning from another worker,
+    // where it may have rescaled, rebuilds from current rates instead of resuming an old plan.
+    private static final long RETAIN_NANOS = TimeUnit.MINUTES.toNanos(5);
+    // A connector instance restarted on the same worker (REST restart, pause and resume, a rebalance that keeps
+    // it here) resumes the previous instance's plan, so its task configs come out unchanged and Kafka Connect
+    // doesn't restart the tasks. On another worker the plan is rebuilt from samples.
+    private static final Map<String, Retained> RETAINED = new ConcurrentHashMap<>();
+    // The newest instance per connector. Connect may start the next instance before an old thread has exited;
+    // only the newest stores, so a slow old thread can't overwrite a newer instance's state.
+    private static final Map<String, TaskAutoscaler> LATEST = new ConcurrentHashMap<>();
+
+    private static final class Retained {
+        final TaskAutoscalePolicy.Settings settings;
+        final String source;
+        final TaskAutoscalePolicy policy;
+        final TaskAutoscalePolicy.Plan plan;
+        final long storedAtNanos = System.nanoTime();
+
+        Retained(TaskAutoscalePolicy.Settings settings, String source, TaskAutoscalePolicy policy, TaskAutoscalePolicy.Plan plan) {
+            this.settings = settings;
+            this.source = source;
+            this.policy = policy;
+            this.plan = plan;
+        }
+    }
 
     private volatile TaskAutoscalePolicy.Plan plan;
     private volatile TaskAutoscalePolicy.Plan consumed;
@@ -62,6 +89,7 @@ public class TaskAutoscaler extends Thread {
     private int attemptsWithoutPlan;
 
     private final String connectorName;
+    private final TaskAutoscalePolicy.Settings settings;
 
     public TaskAutoscaler(String connectorName, YugabyteDBConnectorConfig config, ConnectorContext context, List<String> tableIds,
                           TaskAutoscalePolicy.Settings settings, long intervalMs, long startupSampleMs) {
@@ -71,7 +99,20 @@ public class TaskAutoscaler extends Thread {
         this.config = config;
         this.context = context;
         this.tableIds = new ArrayList<>(tableIds);
-        this.policy = new TaskAutoscalePolicy(settings);
+        this.settings = settings;
+        LATEST.put(connectorName, this);
+        Retained r = RETAINED.remove(connectorName);
+        if (r != null && r.settings.equals(settings) && r.source.equals(source(tableIds))
+                && System.nanoTime() - r.storedAtNanos < RETAIN_NANOS) {
+            this.policy = r.policy;
+            this.policy.resumed(TimeUnit.NANOSECONDS.toMillis(System.nanoTime()));
+            this.plan = r.plan;
+            initialized.countDown();
+            LOGGER.info("Task autoscaler [{}]: resuming the previous instance's plan, {}", connectorName, r.plan);
+        }
+        else {
+            this.policy = new TaskAutoscalePolicy(settings);
+        }
         this.intervalMs = intervalMs;
         this.startupSampleMs = startupSampleMs;
     }
@@ -174,8 +215,25 @@ public class TaskAutoscaler extends Thread {
             if (plan == null && shutdown.getCount() > 0) {
                 markUnavailable("stopped");
             }
+            // Atomic with the newest-instance check: a new instance's LATEST.put waits for this, then finds the state.
+            LATEST.computeIfPresent(connectorName, (name, newest) -> {
+                if (newest != this) {
+                    return newest;
+                }
+                if (shutdown.getCount() == 0 && plan != null && plan == policy.current()) {
+                    long now = System.nanoTime();
+                    RETAINED.values().removeIf(r -> now - r.storedAtNanos >= RETAIN_NANOS);
+                    RETAINED.put(name, new Retained(settings, source(tableIds), policy, plan));
+                }
+                return null;
+            });
             initialized.countDown();
         }
+    }
+
+    /** The stream and its current tables: a resumed policy's backlog and rate history only fit the same source. */
+    private String source(Collection<String> tables) {
+        return config.streamId() + "|" + String.join(",", new TreeSet<>(tables));
     }
 
     private List<TaskAutoscalePolicy.TabletSample> sample(YBClient client) throws Exception {

@@ -461,6 +461,26 @@ public class TaskAutoscalePolicyTest {
     }
 
     @Test
+    public void aResumedPolicyMeasuresTheBacklogFromItsOwnSamples() {
+        TaskAutoscalePolicy p = backlogPolicy();
+        assertEquals(1, p.evaluate(sample(8, 0, 0), sample(8, 60, 60), MIN, 0).apply.taskCount);
+        p.evaluate(sample(8, 60, 60), sample(8, 120, 120), MIN, MIN);
+        // Stopped for 4 minutes while writes went on: 8 × 930 ops behind on resume, above the 6,000 that counts as large.
+        p.resumed(5 * MIN);
+        TaskAutoscalePolicy.Evaluation e = p.evaluate(sample(8, 1120, 120), sample(8, 1130, 200), MIN, 6 * MIN);
+        assertFalse(e.lagging, "the backlog built up while stopped is not growth");
+        assertNull(e.apply);
+    }
+
+    @Test
+    public void settingsCompareByValue() {
+        assertEquals(new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600),
+                new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600));
+        assertNotEquals(new TaskAutoscalePolicy.Settings(1, 16, 100, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600),
+                new TaskAutoscalePolicy.Settings(1, 16, 200, 8, 60, 2, 3, MIN, MIN, 1.0, MIN, 600));
+    }
+
+    @Test
     public void weightedGroupingSpreadsHotTablets() {
         List<HashPartition> parts = new ArrayList<>();
         Map<String, Double> w = new HashMap<>();
